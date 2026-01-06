@@ -7,9 +7,10 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface AdminPanelProps {
   onUpdate?: () => void;
+  onNotification?: (message: string) => void;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate, onNotification }) => {
   const [view, setView] = useState<'overview' | 'requests' | 'users' | 'settings'>('overview');
   const [allRequests, setAllRequests] = useState<any[]>([]);
   const [dbUsers, setDbUsers] = useState<any[]>([]);
@@ -31,17 +32,53 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: reqs } = await supabase.from('leave_requests').select('*, profiles(full_name, department)').order('created_at', { ascending: false });
-      const { data: users } = await supabase.from('profiles').select('*').order('full_name');
+      // Essayer d'abord avec la relation (join)
+      let { data: reqs, error: reqError } = await supabase
+        .from('leave_requests')
+        .select('*, profiles(full_name, department)')
+        .order('created_at', { ascending: false });
+      
+      // Si la relation n'existe pas, faire un fallback sans join
+      if (reqError && (reqError.message?.includes('relationship') || reqError.message?.includes('schema cache'))) {
+        const { data: reqsData, error: reqsError } = await supabase
+          .from('leave_requests')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (reqsError) throw reqsError;
+        reqs = reqsData || [];
+
+        // Enrichir manuellement avec les données des profils
+        const { data: users, error: usersError } = await supabase.from('profiles').select('*');
+        if (usersError) {
+          console.error("Erreur lors du chargement des profils:", usersError);
+          if (onNotification) onNotification("Erreur lors du chargement des données utilisateurs");
+        }
+
+        const usersMap = new Map((users || []).map(u => [u.id, u]));
+
+        reqs = (reqs || []).map(req => ({
+          ...req,
+          profiles: usersMap.get(req.user_id) || { full_name: 'Inconnu', department: 'N/A' }
+        }));
+      } else if (reqError) {
+        throw reqError;
+      }
+      
+      const { data: users, error: userError } = await supabase.from('profiles').select('*').order('full_name');
+      if (userError) throw userError;
+      
       setAllRequests(reqs || []);
       setDbUsers(users || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Erreur de synchronisation:", err);
+      if (onNotification) onNotification(`Erreur de chargement: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -63,6 +100,27 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
+    
+    // Validation
+    if (!editingUser.full_name.trim()) {
+      if (onNotification) onNotification("Le nom complet est requis");
+      else alert("Le nom complet est requis");
+      return;
+    }
+    
+    if (!editingUser.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editingUser.email)) {
+      if (onNotification) onNotification("Email invalide");
+      else alert("Email invalide");
+      return;
+    }
+    
+    const hireDate = new Date(editingUser.hire_date);
+    if (isNaN(hireDate.getTime())) {
+      if (onNotification) onNotification("Date d'embauche invalide");
+      else alert("Date d'embauche invalide");
+      return;
+    }
+    
     try {
       const { error } = await supabase.from('profiles').update({
         full_name: editingUser.full_name,
@@ -74,7 +132,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
       if (error) throw error;
       setEditingUser(null);
       fetchData();
-    } catch (err: any) { alert("Erreur: " + err.message); }
+      if (onNotification) onNotification("Utilisateur mis à jour avec succès");
+    } catch (err: any) { 
+      if (onNotification) onNotification(`Erreur: ${err.message}`);
+      else alert("Erreur: " + err.message);
+    }
   };
 
   const handleDeleteUser = async (id: string, name: string) => {
@@ -86,8 +148,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
       if (error) throw error;
       fetchData();
       if (onUpdate) onUpdate();
+      if (onNotification) onNotification("Utilisateur supprimé avec succès");
     } catch (err: any) { 
-      alert("Erreur lors de la suppression : " + err.message); 
+      if (onNotification) onNotification(`Erreur lors de la suppression : ${err.message}`);
+      else alert("Erreur lors de la suppression : " + err.message);
     } finally { 
       setLoading(false); 
     }
@@ -95,13 +159,38 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validation
+    if (!newUser.full_name.trim()) {
+      if (onNotification) onNotification("Le nom complet est requis");
+      else alert("Le nom complet est requis");
+      return;
+    }
+    
+    if (!newUser.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newUser.email)) {
+      if (onNotification) onNotification("Email invalide");
+      else alert("Email invalide");
+      return;
+    }
+    
+    const hireDate = new Date(newUser.hire_date);
+    if (isNaN(hireDate.getTime()) || hireDate > new Date()) {
+      if (onNotification) onNotification("Date d'embauche invalide");
+      else alert("Date d'embauche invalide");
+      return;
+    }
+    
     try {
       const { error } = await supabase.from('profiles').insert([newUser]);
       if (error) throw error;
       setIsAdding(false);
       setNewUser({ full_name: '', email: '', role: UserRole.EMPLOYEE, department: 'Sinistre', hire_date: new Date().toISOString().split('T')[0] });
       fetchData();
-    } catch (err: any) { alert("Erreur: " + err.message); }
+      if (onNotification) onNotification("Nouvel utilisateur ajouté avec succès");
+    } catch (err: any) { 
+      if (onNotification) onNotification(`Erreur: ${err.message}`);
+      else alert("Erreur: " + err.message);
+    }
   };
 
   const handleDecision = async () => {
@@ -116,7 +205,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
       setManagerComment('');
       fetchData();
       if (onUpdate) onUpdate();
-    } catch (err: any) { alert("Erreur critique: " + err.message); }
+      const actionText = decisionModal.action === LeaveStatus.APPROVED ? 'approuvée' : 'refusée';
+      if (onNotification) onNotification(`Demande ${actionText} avec succès`);
+    } catch (err: any) { 
+      if (onNotification) onNotification(`Erreur critique: ${err.message}`);
+      else alert("Erreur critique: " + err.message);
+    }
   };
 
   const stats = {
@@ -164,6 +258,172 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
         )}
       </div>
 
+      {/* Overview View */}
+      {view === 'overview' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+            <h3 className="text-xl font-black text-slate-900 mb-6">Répartition par Département</h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={deptData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {deptData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={['#1e3a8a', '#3b82f6', '#60a5fa', '#93c5fd', '#dbeafe', '#f59e0b'][index % 6]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+            <h3 className="text-xl font-black text-slate-900 mb-6">Statistiques des Demandes</h3>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
+                <span className="text-sm font-bold text-slate-600">Total des demandes</span>
+                <span className="text-2xl font-black text-slate-900">{allRequests.length}</span>
+              </div>
+              <div className="flex justify-between items-center p-4 bg-emerald-50 rounded-2xl">
+                <span className="text-sm font-bold text-emerald-700">Approuvées</span>
+                <span className="text-2xl font-black text-emerald-600">{stats.approved}</span>
+              </div>
+              <div className="flex justify-between items-center p-4 bg-amber-50 rounded-2xl">
+                <span className="text-sm font-bold text-amber-700">En attente</span>
+                <span className="text-2xl font-black text-amber-600">{stats.pending}</span>
+              </div>
+              <div className="flex justify-between items-center p-4 bg-rose-50 rounded-2xl">
+                <span className="text-sm font-bold text-rose-700">Refusées</span>
+                <span className="text-2xl font-black text-rose-600">{allRequests.filter(r => r.status === LeaveStatus.REJECTED).length}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Requests View - Validation des demandes */}
+      {view === 'requests' && (
+        <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in relative">
+          {loading && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center"><div className="w-10 h-10 border-4 border-indigo-900 border-t-transparent rounded-full animate-spin"></div></div>}
+          <div className="p-8 border-b border-slate-100">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Demandes en Attente de Validation</h3>
+            <p className="text-slate-500 text-sm mt-2">{stats.pending} demande(s) nécessitent votre attention</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  <th className="px-6 py-4">Collaborateur</th>
+                  <th className="px-6 py-4">Type</th>
+                  <th className="px-6 py-4">Période</th>
+                  <th className="px-6 py-4 text-center">Durée</th>
+                  <th className="px-6 py-4">Commentaire</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {allRequests
+                  .filter(r => r.status === LeaveStatus.PENDING)
+                  .map(req => {
+                    const user = req.profiles || { full_name: 'Inconnu', department: 'N/A' };
+                    return (
+                      <tr key={req.id} className="hover:bg-indigo-50/20 transition-all">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-indigo-900 text-white rounded-lg flex items-center justify-center font-black text-xs">{user.full_name?.charAt(0) || '?'}</div>
+                            <div>
+                              <p className="font-bold text-slate-900">{user.full_name || 'Inconnu'}</p>
+                              <p className="text-[10px] text-slate-400">{user.department || 'N/A'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 font-medium text-slate-700">{req.type}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {new Date(req.start_date).toLocaleDateString('fr-FR')} - {new Date(req.end_date).toLocaleDateString('fr-FR')}
+                        </td>
+                        <td className="px-6 py-4 text-center font-bold text-slate-700">{req.duration} j</td>
+                        <td className="px-6 py-4 text-slate-500 max-w-xs truncate">{req.comment || '-'}</td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => setDecisionModal({ id: req.id, action: LeaveStatus.APPROVED })}
+                              className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-emerald-700 transition-all"
+                            >
+                              Approuver
+                            </button>
+                            <button
+                              onClick={() => setDecisionModal({ id: req.id, action: LeaveStatus.REJECTED })}
+                              className="bg-rose-600 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-rose-700 transition-all"
+                            >
+                              Refuser
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {allRequests.filter(r => r.status === LeaveStatus.PENDING).length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                      <p className="text-lg font-bold">Aucune demande en attente</p>
+                      <p className="text-sm mt-2">Toutes les demandes ont été traitées</p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Settings View */}
+      {view === 'settings' && (
+        <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+          <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Paramètres Administratifs</h3>
+          <div className="space-y-6">
+            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200">
+              <h4 className="text-sm font-black text-slate-900 mb-4">Informations Système</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Version</span>
+                  <span className="font-bold text-slate-900">mtpRH v4.0</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Base de données</span>
+                  <span className="font-bold text-slate-900">Supabase</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Conformité légale</span>
+                  <span className="font-bold text-emerald-600">Code du Travail Marocain</span>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 bg-amber-50 rounded-2xl border border-amber-200">
+              <h4 className="text-sm font-black text-amber-900 mb-2">⚠️ Actions Administratives</h4>
+              <p className="text-xs text-amber-700 mb-4">Ces actions sont irréversibles. Utilisez avec précaution.</p>
+              <button
+                onClick={() => {
+                  if (window.confirm('Voulez-vous vraiment réinitialiser toutes les statistiques ? Cette action est irréversible.')) {
+                    if (onNotification) onNotification('Fonctionnalité à venir');
+                  }
+                }}
+                className="bg-amber-600 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-amber-700 transition-all"
+              >
+                Réinitialiser les statistiques
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {view === 'users' && (
         <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in relative">
           {loading && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center"><div className="w-10 h-10 border-4 border-indigo-900 border-t-transparent rounded-full animate-spin"></div></div>}
@@ -186,7 +446,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
                     <tr key={u.id} className="hover:bg-indigo-50/20 transition-all group">
                       <td className="px-10 py-6">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-indigo-900 text-white rounded-xl flex items-center justify-center font-black text-xs">{u.full_name.charAt(0)}</div>
+                          <div className="w-10 h-10 bg-indigo-900 text-white rounded-xl flex items-center justify-center font-black text-xs">{u.full_name?.charAt(0) || '?'}</div>
                           <div><p className="font-bold text-slate-900 tracking-tight">{u.full_name}</p><p className="text-[10px] text-slate-400">{u.email}</p></div>
                         </div>
                       </td>
@@ -214,7 +474,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
           <div className="bg-white w-full max-w-4xl rounded-[4rem] p-12 shadow-2xl animate-in max-h-[90vh] overflow-y-auto scrollbar-hide">
              <div className="flex justify-between items-center mb-10 border-b border-slate-100 pb-8">
-                <div className="flex items-center gap-6"><div className="w-20 h-20 bg-indigo-900 text-white rounded-[2rem] flex items-center justify-center text-2xl font-black">{editingUser.full_name.charAt(0)}</div><div><h3 className="text-3xl font-black text-slate-900 tracking-tighter">{editingUser.full_name}</h3><p className="text-slate-400 font-medium italic">Audit de solde & Paramètres</p></div></div>
+                <div className="flex items-center gap-6"><div className="w-20 h-20 bg-indigo-900 text-white rounded-[2rem] flex items-center justify-center text-2xl font-black">{editingUser.full_name?.charAt(0) || '?'}</div><div><h3 className="text-3xl font-black text-slate-900 tracking-tighter">{editingUser.full_name}</h3><p className="text-slate-400 font-medium italic">Audit de solde & Paramètres</p></div></div>
                 <button onClick={() => setEditingUser(null)} className="p-4 bg-slate-50 rounded-full text-slate-400 hover:text-slate-900 transition-all"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg></button>
              </div>
              <form onSubmit={handleUpdateUser} className="grid grid-cols-1 md:grid-cols-2 gap-10">
@@ -233,7 +493,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
                       </div>
                       <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Email</label>
-                        <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.email} onChange={e => setEditingUser({...editingUser, email: e.target.value})} />
+                        <input type="email" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.email} onChange={e => setEditingUser({...editingUser, email: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Rôle</label>
+                        <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})}>
+                          <option value={UserRole.EMPLOYEE}>Employé</option>
+                          <option value={UserRole.MANAGER}>Manager</option>
+                          <option value={UserRole.HR}>RH</option>
+                          <option value={UserRole.ADMIN}>Administrateur</option>
+                        </select>
                       </div>
                    </div>
                 </div>
@@ -247,11 +516,56 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
                       <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 mt-4">
                         <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-indigo-900">Congés Acquis</span><span className="text-lg font-black text-indigo-600">{calculateMoroccanAccruedDays(editingUser.hire_date).toFixed(1)} j</span></div>
                         <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-rose-900">Consommé</span><span className="text-lg font-black text-rose-600">-{allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)} j</span></div>
+                        <div className="flex justify-between items-center pt-4 border-t border-indigo-200"><span className="text-xs font-bold text-emerald-900">Solde Restant</span><span className="text-lg font-black text-emerald-600">{Math.max(0, calculateMoroccanAccruedDays(editingUser.hire_date) - allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)).toFixed(1)} j</span></div>
                       </div>
                    </div>
                 </div>
                 <button type="submit" className="col-span-full bg-indigo-900 text-white py-6 rounded-[2rem] font-black text-sm shadow-xl hover:bg-black transition-all">Enregistrer les modifications</button>
              </form>
+          </div>
+        </div>
+      )}
+
+      {/* Decision Modal */}
+      {decisionModal && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 shadow-2xl animate-in">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">
+              {decisionModal.action === LeaveStatus.APPROVED ? 'Approuver la demande' : 'Refuser la demande'}
+            </h3>
+            <div className="space-y-6">
+              <div>
+                <label className="text-sm font-black text-slate-700 block mb-2">Commentaire (optionnel)</label>
+                <textarea
+                  rows={4}
+                  value={managerComment}
+                  onChange={(e) => setManagerComment(e.target.value)}
+                  placeholder="Ajoutez un commentaire pour le collaborateur..."
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm focus:border-indigo-500 outline-none resize-none"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-4">
+                <button
+                  onClick={() => {
+                    setDecisionModal(null);
+                    setManagerComment('');
+                  }}
+                  className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleDecision}
+                  className={`px-8 py-3 rounded-2xl font-black text-sm transition-all ${
+                    decisionModal.action === LeaveStatus.APPROVED
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      : 'bg-rose-600 text-white hover:bg-rose-700'
+                  }`}
+                >
+                  {decisionModal.action === LeaveStatus.APPROVED ? 'Confirmer l\'approbation' : 'Confirmer le refus'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -266,6 +580,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ onUpdate }) => {
               <input type="email" required className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" placeholder="Email" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
               <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.department} onChange={e => setNewUser({...newUser, department: e.target.value})}>
                 {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value as UserRole})}>
+                <option value={UserRole.EMPLOYEE}>Employé</option>
+                <option value={UserRole.MANAGER}>Manager</option>
+                <option value={UserRole.HR}>RH</option>
+                <option value={UserRole.ADMIN}>Administrateur</option>
               </select>
               <div className="col-span-full">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>

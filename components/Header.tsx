@@ -5,9 +5,12 @@ import { User } from '../types';
 interface HeaderProps {
   user: User;
   onLogout: () => void;
+  onShowProfile?: () => void;
+  onShowSettings?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
+const Header: React.FC<HeaderProps> = ({ user, onLogout, onShowProfile, onShowSettings }) => {
+  if (!user) return null; // Sécurité supplémentaire
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -21,11 +24,26 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleAction = (e: React.MouseEvent, label: string) => {
+  const handleProfileClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    alert(`Fonctionnalité "${label}" : Accès en cours de déploiement pour votre agence.`);
     setShowProfileMenu(false);
+    if (onShowProfile) {
+      onShowProfile();
+    } else {
+      alert(`Fonctionnalité "Mon Profil" : Accès en cours de déploiement pour votre agence.`);
+    }
+  };
+
+  const handleSettingsClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowProfileMenu(false);
+    if (onShowSettings) {
+      onShowSettings();
+    } else {
+      alert(`Fonctionnalité "Paramètres" : Accès en cours de déploiement pour votre agence.`);
+    }
   };
 
   const handleLogoutClick = (e: React.MouseEvent) => {
@@ -56,7 +74,14 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
       </div>
 
       <div className="flex items-center space-x-8">
-        <button type="button" className="relative p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
+        <button 
+          type="button" 
+          onClick={() => {
+            // Ici vous pouvez ajouter un modal de notifications ou une fonctionnalité
+            alert('Centre de notifications - Fonctionnalité à venir');
+          }}
+          className="relative p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+        >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
@@ -93,14 +118,14 @@ const Header: React.FC<HeaderProps> = ({ user, onLogout }) => {
               </div>
               <button 
                 type="button"
-                onClick={(e) => handleAction(e, 'Mon Profil')}
+                onClick={handleProfileClick}
                 className="w-full text-left px-6 py-3 text-sm font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors cursor-pointer"
               >
                 Mon Profil
               </button>
               <button 
                 type="button"
-                onClick={(e) => handleAction(e, 'Paramètres')}
+                onClick={handleSettingsClick}
                 className="w-full text-left px-6 py-3 text-sm font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors cursor-pointer"
               >
                 Paramètres

@@ -17,8 +17,16 @@ const TeamCalendar: React.FC<TeamCalendarProps> = ({ requests }) => {
 
   useEffect(() => {
     const fetchCollabs = async () => {
-      const { data } = await supabase.from('profiles').select('id, full_name');
-      setCollabs(data || []);
+      try {
+        const { data, error } = await supabase.from('profiles').select('id, full_name');
+        if (error) {
+          console.error('Erreur lors du chargement des collaborateurs:', error);
+          return;
+        }
+        setCollabs(data || []);
+      } catch (err) {
+        console.error('Erreur lors du chargement des collaborateurs:', err);
+      }
     };
     fetchCollabs();
   }, []);
@@ -79,7 +87,7 @@ const TeamCalendar: React.FC<TeamCalendarProps> = ({ requests }) => {
           {collabs.map(collab => (
             <div key={collab.id} className="grid grid-cols-[250px_repeat(auto-fit,minmax(35px,1fr))] border-b border-slate-50 last:border-b-0 hover:bg-indigo-50/10 transition-colors group">
               <div className="p-4 flex items-center space-x-3 border-r border-slate-200 bg-white sticky left-0 z-10">
-                <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-[10px] font-black text-white">{collab.full_name.charAt(0)}</div>
+                <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-[10px] font-black text-white">{collab.full_name?.charAt(0) || '?'}</div>
                 <span className="text-xs font-bold text-slate-700 truncate group-hover:text-indigo-600 transition-colors">{collab.full_name}</span>
               </div>
               {days.map(d => {

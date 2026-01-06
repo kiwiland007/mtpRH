@@ -19,14 +19,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
     .reduce((sum, r) => sum + r.duration, 0);
   const currentRemaining = totalAccrued - used;
 
+  // Calcul du solde restant après chaque demande (ordre chronologique)
+  const calculateRemainingAfterRequest = (requestIndex: number) => {
+    let runningBalance = totalAccrued;
+    for (let i = 0; i <= requestIndex; i++) {
+      const req = sortedByDate[i];
+      if (req) {
+        // Pour les demandes approuvées, on déduit toujours
+        // Pour la demande en cours (requestIndex), on déduit pour montrer le solde après
+        if (req.status === LeaveStatus.APPROVED || i === requestIndex) {
+          runningBalance -= req.duration;
+        }
+      }
+    }
+    return Math.max(0, runningBalance);
+  };
+
   const chartData = [
     { name: 'Pris', value: used, color: '#10b981' },
     { name: 'En attente', value: pending, color: '#f59e0b' },
     { name: 'Restant', value: currentRemaining, color: '#3b82f6' },
   ];
 
-  // Trier les requêtes par date de création pour calculer le solde historique si besoin
-  const sortedRequests = [...requests].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // Trier les requêtes par date de création (plus récentes en premier pour l'affichage)
+  const sortedRequests = [...requests]
+    .filter(r => r.userId === user.id)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  
+  // Trier par date de création croissante pour le calcul du solde
+  const sortedByDate = [...requests]
+    .filter(r => r.userId === user.id)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   return (
     <div className="space-y-6">
@@ -85,9 +108,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {sortedRequests.map((req, index) => {
-                  // Calcul du solde restant après cette demande (si approuvée)
-                  // On simule ici la déduction du solde
+                {sortedRequests.map((req) => {
+                  // Trouver l'index dans la liste triée chronologiquement
+                  const chronologicalIndex = sortedByDate.findIndex(r => r.id === req.id);
+                  const remainingAfter = chronologicalIndex >= 0 
+                    ? calculateRemainingAfterRequest(chronologicalIndex)
+                    : currentRemaining;
+                  
                   return (
                     <tr key={req.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-sm font-medium text-slate-700">{req.type}</td>
@@ -97,7 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
                       <td className="px-6 py-4 text-center text-sm font-bold text-slate-700">-{req.duration}</td>
                       <td className="px-6 py-4 text-center">
                         <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">
-                          {req.status === LeaveStatus.APPROVED ? currentRemaining : currentRemaining - req.duration} j
+                          {remainingAfter} j
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -115,8 +142,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
             </table>
           </div>
           <div className="p-4 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-400 italic">
-            * Le solde final indique ce qu'il vous resterait si la demande en attente est approuvée.
+            * Le solde indique ce qu'il vous resterait après chaque demande, calculé dans l'ordre chronologique.
           </div>
+          {sortedRequests.length === 0 && (
+            <div className="p-12 text-center">
+              <p className="text-slate-400 font-medium">Aucune demande de congé enregistrée</p>
+            </div>
+          )}
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">

@@ -7,9 +7,10 @@ interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: any) => void;
   userRole: UserRole;
+  onOpenSupport?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, userRole }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, userRole, onOpenSupport }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: ICONS.Dashboard },
     { id: 'request', label: 'Ma demande', icon: ICONS.Calendar },
@@ -67,7 +68,18 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, userRole }) =
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Support Agent General</p>
         </div>
         <p className="text-[10px] text-slate-400 leading-relaxed mb-3">AXA Assurance - Assistance Technique</p>
-        <button className="w-full py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-[10px] font-black transition-all border border-slate-700 uppercase tracking-widest">Ouvrir un ticket</button>
+        <button 
+          onClick={() => {
+            if (onOpenSupport) {
+              onOpenSupport();
+            } else {
+              alert('Fonctionnalité de support en cours de déploiement');
+            }
+          }}
+          className="w-full py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-[10px] font-black transition-all border border-slate-700 uppercase tracking-widest"
+        >
+          Ouvrir un ticket
+        </button>
       </div>
     </div>
   );

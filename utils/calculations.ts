@@ -66,22 +66,28 @@ export const calculateMoroccanAccruedDays = (hireDate: string): number => {
   // Pour un an, cela donne 18 jours.
   const baseAccrual = totalMonthsWorked * 1.5;
   
-  // 2. Majoration d'ancienneté (Art. 241)
-  // 1.5 jours supplémentaires par période entière de 5 ans de service.
-  // Note : Cette majoration s'ajoute au droit annuel. 
-  // Dans un système de cumul, on calcule le bonus acquis au fil du temps.
+  // 2. Calcul du droit annuel selon l'ancienneté
   const yearsOfService = Math.floor(totalMonthsWorked / 12);
-  const seniorityBonusPerYear = Math.floor(yearsOfService / 5) * 1.5;
-  
-  // 3. Vérification du plafond légal par an (30 jours)
-  // Le droit annuel est : 18 jours (base) + seniorityBonusPerYear.
-  // Si le droit annuel calculé dépasse 30 jours, on le cap à 30 pour les calculs de cumul.
-  const annualRate = Math.min(18 + seniorityBonusPerYear, 30);
-  
-  // Pour obtenir le solde actuel cumulé depuis l'embauche (simplifié):
-  // On applique le taux annuel actuel au prorata du temps passé, 
-  // ce qui est la méthode standard en gestion RH pour les tableaux de bord.
-  const totalAccrued = (totalMonthsWorked / 12) * annualRate;
+  const periodsOf5Years = Math.floor(yearsOfService / 5);
+
+  // Base : 18 jours par an (Art. 231)
+  // Majoration d'ancienneté : +1.5 jours par période de 5 ans (Art. 241)
+  // Le droit annuel inclut la majoration et est plafonné à 30 jours
+  const currentAnnualRate = Math.min(18 + (periodsOf5Years * 1.5), 30);
+
+  // 3. Calcul du solde cumulé depuis l'embauche
+  // Pour chaque année complète écoulée, on applique le taux annuel en vigueur à cette époque
+  let totalAccrued = 0;
+  for (let year = 0; year < yearsOfService; year++) {
+    // Calcul du droit annuel pour cette année spécifique
+    const periodsAtThatTime = Math.floor(year / 5);
+    const annualRateAtThatTime = Math.min(18 + (periodsAtThatTime * 1.5), 30);
+    totalAccrued += annualRateAtThatTime;
+  }
+
+  // Ajouter les mois restants de l'année en cours avec le taux annuel actuel
+  const remainingMonths = totalMonthsWorked % 12;
+  totalAccrued += (remainingMonths / 12) * currentAnnualRate;
 
   return parseFloat(totalAccrued.toFixed(2));
 };

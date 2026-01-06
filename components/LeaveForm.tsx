@@ -5,9 +5,10 @@ import { calculateBusinessDays } from '../utils/calculations';
 
 interface LeaveFormProps {
   onSubmit: (data: any) => void;
+  onNotification?: (message: string) => void;
 }
 
-const LeaveForm: React.FC<LeaveFormProps> = ({ onSubmit }) => {
+const LeaveForm: React.FC<LeaveFormProps> = ({ onSubmit, onNotification }) => {
   const [formData, setFormData] = useState({
     type: LeaveType.ANNUAL,
     startDate: '',
@@ -23,9 +24,50 @@ const LeaveForm: React.FC<LeaveFormProps> = ({ onSubmit }) => {
     }
   }, [formData.startDate, formData.endDate]);
 
+  const showNotification = (message: string) => {
+    if (onNotification) {
+      onNotification(message);
+    } else {
+      alert(message);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (duration <= 0) return alert('Dates invalides ou ne contenant aucun jour ouvrable');
+    
+    // Validation des dates
+    if (!formData.startDate || !formData.endDate) {
+      showNotification('Veuillez sélectionner les dates de début et de fin');
+      return;
+    }
+    
+    const start = new Date(formData.startDate);
+    const end = new Date(formData.endDate);
+    
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      showNotification('Dates invalides');
+      return;
+    }
+    
+    if (start > end) {
+      showNotification('La date de début doit être antérieure à la date de fin');
+      return;
+    }
+    
+    if (duration <= 0) {
+      showNotification('Dates invalides ou ne contenant aucun jour ouvrable');
+      return;
+    }
+    
+    // Vérifier que la date de début n'est pas dans le passé
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (start < today) {
+      if (!window.confirm('La date de début est dans le passé. Souhaitez-vous continuer ?')) {
+        return;
+      }
+    }
+    
     onSubmit({ ...formData, duration });
   };
 
@@ -101,7 +143,14 @@ const LeaveForm: React.FC<LeaveFormProps> = ({ onSubmit }) => {
           </div>
 
           <div className="flex items-center justify-end gap-4">
-             <button type="button" className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all">
+             <button 
+               type="button" 
+               onClick={() => {
+                 setFormData({ type: LeaveType.ANNUAL, startDate: '', endDate: '', comment: '' });
+                 setDuration(0);
+               }}
+               className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+             >
                Annuler
              </button>
              <button type="submit" className="bg-emerald-600 text-white px-10 py-3 rounded-2xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all active:scale-95">
