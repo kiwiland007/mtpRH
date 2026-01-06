@@ -1,0 +1,5 @@
+{
+  "name": "MarocCongés - Système de Gestion des Congés",
+  "description": "Une application intranet moderne pour la gestion des congés, conforme au Code du travail marocain, avec workflows d'approbation et tableaux de bord RH.",
+  "requestFramePermissions": []
+}
