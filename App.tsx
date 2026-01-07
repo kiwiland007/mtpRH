@@ -146,9 +146,9 @@ const App: React.FC = () => {
           department: updatedUser.department
         })
         .eq('id', currentUser.id);
-      
+
       if (error) throw error;
-      
+
       setCurrentUser({ ...currentUser, ...updatedUser });
       addNotification('Profil mis à jour avec succès');
       setShowProfileModal(false);
@@ -164,7 +164,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#F8FAFC]">
-        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} userRole={currentUser?.role || 'EMPLOYEE'} onOpenSupport={() => setShowSupportModal(true)} />
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} userRole={currentUser?.role || 'EMPLOYEE'} onOpenSupport={() => setShowSupportModal(true)} />
 
       <div className="flex flex-col flex-1 overflow-y-auto">
         <Header
@@ -173,7 +173,7 @@ const App: React.FC = () => {
           onShowProfile={() => setShowProfileModal(true)}
           onShowSettings={() => setShowSettingsModal(true)}
         />
-        
+
         <main className="p-6 md:p-10">
           <div className="max-w-7xl mx-auto">
             {dbError && (
@@ -187,9 +187,9 @@ const App: React.FC = () => {
                   <p className="text-slate-500 leading-relaxed text-lg max-w-2xl mb-8">
                     Le schéma de données n'est pas encore prêt. Copiez ce script SQL et exécutez-le dans votre console Supabase pour activer la plateforme.
                   </p>
-                  
+
                   <div className="flex flex-wrap gap-4">
-                    <button 
+                    <button
                       onClick={() => {
                         const sql = `-- MTP RH : SCRIPT D'INSTALLATION V4 (CLEAN & INSTALL)
 -- Suppression exhaustive pour éviter l'erreur 42710
@@ -254,7 +254,37 @@ CREATE POLICY "mtprh_v4_requests" ON public.leave_requests FOR ALL USING (true) 
 -- Admin
 INSERT INTO public.profiles (id, full_name, email, role, department, hire_date)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Ahmed Mansouri', 'ahmed.mansouri@mtp.ma', 'ADMIN', 'Direction', '2020-03-10')
-ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
+ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';
+
+-- Mises à jour v5 (Administration Avancée)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS balance_adjustment NUMERIC DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    action TEXT NOT NULL,
+    performed_by UUID REFERENCES public.profiles(id),
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "admin_view_logs" ON public.audit_logs FOR SELECT TO authenticated USING (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'ADMIN')
+);
+CREATE POLICY "admin_insert_logs" ON public.audit_logs FOR INSERT TO authenticated WITH CHECK (true);
+
+-- Vue pour les reports de solde (simulation)
+CREATE OR REPLACE VIEW public.leave_balance_reports AS
+SELECT 
+    p.id as user_id,
+    p.full_name,
+    p.hire_date,
+    (EXTRACT(YEAR FROM age(NOW(), p.hire_date)) * 18) as theoretical_total,
+    COALESCE(SUM(lr.duration) FILTER (WHERE lr.status = 'APPROVED'), 0) as total_consumed
+FROM public.profiles p
+LEFT JOIN public.leave_requests lr ON p.id = lr.user_id
+GROUP BY p.id;`;
                         navigator.clipboard.writeText(sql);
                         addNotification("Script d'installation mtpRH copié !");
                       }}
@@ -268,11 +298,11 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
                   </div>
                 </div>
                 <div className="absolute -bottom-10 -right-10 opacity-5">
-                   <svg className="w-64 h-64" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2zm0 3.5L19.5 19h-15L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>
+                  <svg className="w-64 h-64" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2zm0 3.5L19.5 19h-15L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z" /></svg>
                 </div>
               </div>
             )}
-            
+
             {loading ? (
               <div className="flex flex-col items-center justify-center h-[60vh] space-y-6">
                 <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
@@ -283,7 +313,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
                 {activeTab === 'dashboard' && <Dashboard user={currentUser} requests={requests} />}
                 {activeTab === 'request' && <LeaveForm onSubmit={handleNewRequest} onNotification={addNotification} />}
                 {activeTab === 'calendar' && <TeamCalendar requests={requests} />}
-                {activeTab === 'admin' && <AdminPanel onUpdate={() => fetchRequests()} onNotification={addNotification} />}
+                {activeTab === 'admin' && <AdminPanel user={currentUser} onUpdate={() => fetchRequests()} onNotification={addNotification} />}
               </div>
             )}
           </div>
@@ -296,17 +326,17 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[100] flex items-center justify-center p-6">
           <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 shadow-2xl animate-in max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-10 border-b border-slate-100 pb-8">
-                  <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 bg-indigo-900 text-white rounded-[2rem] flex items-center justify-center text-2xl font-black">
-                      {currentUser?.fullName?.charAt(0) || '?'}
-                    </div>
-                    <div>
-                      <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Mon Profil</h3>
-                      <p className="text-slate-400 font-medium italic">{currentUser?.role || 'EMPLOYEE'}</p>
-                    </div>
-                  </div>
-              <button 
-                onClick={() => setShowProfileModal(false)} 
+              <div className="flex items-center gap-6">
+                <div className="w-20 h-20 bg-indigo-900 text-white rounded-[2rem] flex items-center justify-center text-2xl font-black">
+                  {currentUser?.fullName?.charAt(0) || '?'}
+                </div>
+                <div>
+                  <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Mon Profil</h3>
+                  <p className="text-slate-400 font-medium italic">{currentUser?.role || 'EMPLOYEE'}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowProfileModal(false)}
                 className="p-4 bg-slate-50 rounded-full text-slate-400 hover:text-slate-900 transition-all"
               >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -314,7 +344,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
                 </svg>
               </button>
             </div>
-            
+
             <div className="space-y-6">
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Nom Complet</label>
@@ -359,8 +389,8 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
           <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 shadow-2xl animate-in max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-10 border-b border-slate-100 pb-8">
               <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Paramètres</h3>
-              <button 
-                onClick={() => setShowSettingsModal(false)} 
+              <button
+                onClick={() => setShowSettingsModal(false)}
                 className="p-4 bg-slate-50 rounded-full text-slate-400 hover:text-slate-900 transition-all"
               >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -368,7 +398,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
                 </svg>
               </button>
             </div>
-            
+
             <div className="space-y-8">
               <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200">
                 <h4 className="text-sm font-black text-slate-900 mb-4">Préférences de notification</h4>
@@ -433,7 +463,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
               <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-2">Déconnexion</h3>
               <p className="text-slate-500 text-sm">Êtes-vous sûr de vouloir fermer votre session ?</p>
             </div>
-            
+
             <div className="flex items-center justify-end gap-4">
               <button
                 disabled={isLoggingOut}
@@ -478,7 +508,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
                 <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Support Technique</h3>
                 <p className="text-slate-400 text-sm mt-2">Ouvrir un ticket de support</p>
               </div>
-              <button 
+              <button
                 onClick={() => {
                   setShowSupportModal(false);
                   setSupportTicket({ subject: '', message: '' });
@@ -490,8 +520,8 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
                 </svg>
               </button>
             </div>
-            
-            <form 
+
+            <form
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!supportTicket.subject.trim() || !supportTicket.message.trim()) {
@@ -515,7 +545,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';`;
                   className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none"
                 />
               </div>
-              
+
               <div>
                 <label className="text-sm font-black text-slate-700 block mb-2">Description du problème</label>
                 <textarea
