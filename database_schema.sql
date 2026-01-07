@@ -1,5 +1,5 @@
--- MTP RH : SCRIPT D'INSTALLATION COMPLET V5.3 (MODERN & SECURE)
--- Ce script initialise la base de données avec toutes les colonnes nécessaires pour la hiérarchie et l'admin root modifiable.
+-- MTP RH : SCRIPT D'INSTALLATION COMPLET V5.5 (STABLE & VALIDATED)
+-- Ajout de contraintes de validation (duration > 0) et support des demi-journées.
 
 -- 1. Nettoyage des anciennes politiques (optionnel mais recommandé pour éviter les conflits)
 DO $$ 
@@ -41,11 +41,19 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING',
-    duration NUMERIC NOT NULL,
+    duration NUMERIC NOT NULL CHECK (duration > 0),
     comment TEXT,
     manager_comment TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Si la table existe déjà, on applique la contrainte
+DO $$ 
+BEGIN
+    ALTER TABLE public.leave_requests ADD CONSTRAINT duration_positive CHECK (duration > 0);
+EXCEPTION WHEN OTHERS THEN 
+    NULL;
+END $$;
 
 -- 4. Création de la table AUDIT_LOGS pour la traçabilité
 CREATE TABLE IF NOT EXISTS public.audit_logs (

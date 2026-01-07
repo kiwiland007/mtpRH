@@ -246,8 +246,8 @@ const App: React.FC = () => {
                   <div className="flex flex-wrap gap-4">
                     <button
                       onClick={() => {
-                        const sql = `-- MTP RH : SCRIPT D'INSTALLATION COMPLET V5.3 (MODERN & SECURE)
--- Ce script initialise la base de données avec toutes les colonnes nécessaires (manager_id, is_active, balance_adjustment, preferences).
+                        const sql = `-- MTP RH : SCRIPT D'INSTALLATION COMPLET V5.5 (STABLE & VALIDATED)
+-- Ce script initialise la base de données avec validation des durées et support des demi-journées.
 
 -- 1. Tables de base
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -264,11 +264,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Si la table existe déjà, on ajoute les colonnes manquantes
+-- Mise à jour : Ajout des colonnes si inexistantes
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS manager_id UUID REFERENCES public.profiles(id);
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS balance_adjustment NUMERIC DEFAULT 0;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{"email_notifications": true, "app_notifications": true, "theme": "light"}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS public.leave_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -277,11 +276,16 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING',
-    duration NUMERIC NOT NULL,
+    duration NUMERIC NOT NULL CHECK (duration > 0),
     comment TEXT,
     manager_comment TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Si la table existe déjà, on applique la contrainte
+DO $$ BEGIN
+    ALTER TABLE public.leave_requests ADD CONSTRAINT duration_positive CHECK (duration > 0);
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -291,12 +295,12 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Sécurité RLS (Row Level Security)
+-- 2. Sécurité RLS
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leave_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Politiques simplifiées (À restreindre selon vos besoins en production)
+-- Politiques (mtpRH v5 Access)
 DROP POLICY IF EXISTS "mtprh_v5_access" ON public.profiles;
 CREATE POLICY "mtprh_v5_access" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "mtprh_v5_requests" ON public.leave_requests;
@@ -304,7 +308,7 @@ CREATE POLICY "mtprh_v5_requests" ON public.leave_requests FOR ALL USING (true) 
 DROP POLICY IF EXISTS "mtprh_v5_logs" ON public.audit_logs;
 CREATE POLICY "mtprh_v5_logs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
 
--- 3. Données initiales
+-- 3. Admin par défaut
 INSERT INTO public.profiles (id, full_name, email, role, department, hire_date, is_active)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Ahmed Mansouri', 'ahmed.mansouri@mtp.ma', 'ADMIN', 'Direction Générale', '2020-03-10', true)
 ON CONFLICT (email) DO UPDATE SET role = 'ADMIN', is_active = true;`;

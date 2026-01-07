@@ -10,13 +10,13 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
-  const totalAccrued = Math.floor(calculateMoroccanAccruedDays(user.hireDate));
+  const totalAccrued = calculateMoroccanAccruedDays(user.hireDate);
   const used = requests
     .filter(r => r.status === LeaveStatus.APPROVED)
-    .reduce((sum, r) => sum + r.duration, 0);
+    .reduce((sum, r) => sum + Number(r.duration), 0);
   const pending = requests
     .filter(r => r.status === LeaveStatus.PENDING)
-    .reduce((sum, r) => sum + r.duration, 0);
+    .reduce((sum, r) => sum + Number(r.duration), 0);
   const currentRemaining = totalAccrued - used;
 
   // Calcul du solde restant après chaque demande (ordre chronologique)
@@ -28,11 +28,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
         // Pour les demandes approuvées, on déduit toujours
         // Pour la demande en cours (requestIndex), on déduit pour montrer le solde après
         if (req.status === LeaveStatus.APPROVED || i === requestIndex) {
-          runningBalance -= req.duration;
+          runningBalance -= Number(req.duration);
         }
       }
     }
-    return Math.max(0, runningBalance);
+    return Math.max(0, parseFloat(runningBalance.toFixed(2)));
   };
 
   const chartData = [
@@ -45,7 +45,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
   const sortedRequests = [...requests]
     .filter(r => r.userId === user.id)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  
+
   // Trier par date de création croissante pour le calcul du solde
   const sortedByDate = [...requests]
     .filter(r => r.userId === user.id)
@@ -92,8 +92,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
           <div className="p-6 border-b border-slate-100 flex justify-between items-center">
             <h2 className="text-lg font-bold">Mes demandes</h2>
             <div className="flex items-center gap-2">
-               <span className="text-xs font-medium text-slate-400">Solde actuel:</span>
-               <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">{currentRemaining} j</span>
+              <span className="text-xs font-medium text-slate-400">Solde actuel:</span>
+              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">{currentRemaining} j</span>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -111,27 +111,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
                 {sortedRequests.map((req) => {
                   // Trouver l'index dans la liste triée chronologiquement
                   const chronologicalIndex = sortedByDate.findIndex(r => r.id === req.id);
-                  const remainingAfter = chronologicalIndex >= 0 
+                  const remainingAfter = chronologicalIndex >= 0
                     ? calculateRemainingAfterRequest(chronologicalIndex)
                     : currentRemaining;
-                  
+
                   return (
                     <tr key={req.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-sm font-medium text-slate-700">{req.type}</td>
                       <td className="px-6 py-4 text-sm text-slate-500">
-                        {new Date(req.startDate).toLocaleDateString('fr-FR')} - {new Date(req.endDate).toLocaleDateString('fr-FR')}
+                        {new Date(req.startDate).toLocaleDateString('fr-FR')} {req.startDate !== req.endDate ? `- ${new Date(req.endDate).toLocaleDateString('fr-FR')}` : ''}
                       </td>
-                      <td className="px-6 py-4 text-center text-sm font-bold text-slate-700">-{req.duration}</td>
+                      <td className="px-6 py-4 text-center text-sm font-bold text-slate-700">
+                        -{req.duration === 0.5 ? '0,5' : req.duration}
+                      </td>
                       <td className="px-6 py-4 text-center">
                         <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">
                           {remainingAfter} j
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                          req.status === LeaveStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' :
-                          req.status === LeaveStatus.PENDING ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-                        }`}>
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${req.status === LeaveStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' :
+                            req.status === LeaveStatus.PENDING ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                          }`}>
                           {req.status === LeaveStatus.APPROVED ? 'Approuvé' : req.status === LeaveStatus.PENDING ? 'Attente' : 'Refusé'}
                         </span>
                       </td>
@@ -159,7 +160,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, requests }) => {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={80} />
-                <Tooltip cursor={{fill: 'transparent'}} />
+                <Tooltip cursor={{ fill: 'transparent' }} />
                 <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={25}>
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
