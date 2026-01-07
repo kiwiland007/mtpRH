@@ -346,29 +346,49 @@ GROUP BY p.id;`;
               </button>
             </div>
 
-            <div className="space-y-6">
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleUpdateProfile({
+                fullName: formData.get('fullName') as string,
+                department: formData.get('department') as string,
+                // Email is generally not editable by user for security/identity reasons, but we allow it if requested
+                email: formData.get('email') as string
+              });
+            }} className="space-y-6">
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Nom Complet</label>
-                <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-700">
-                  {currentUser?.fullName || 'N/A'}
-                </div>
+                <input
+                  name="fullName"
+                  defaultValue={currentUser?.fullName}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-900 focus:border-indigo-500 outline-none"
+                />
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Email</label>
-                <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-700">
-                  {currentUser?.email || 'N/A'}
-                </div>
+                <input
+                  name="email"
+                  type="email"
+                  defaultValue={currentUser?.email}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-900 focus:border-indigo-500 outline-none"
+                />
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Département</label>
-                <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-700">
-                  {currentUser?.department || 'N/A'}
-                </div>
+                <select
+                  name="department"
+                  defaultValue={currentUser?.department}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-900 focus:border-indigo-500 outline-none"
+                >
+                  {['Direction', 'Sinistre', 'Production', 'Opérations', 'Finance', 'RH', 'Direction Générale'].map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
-                <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-700">
-                  {currentUser?.hireDate ? new Date(currentUser.hireDate).toLocaleDateString('fr-FR') : 'N/A'}
+                <div className="bg-slate-100 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-500 cursor-not-allowed">
+                  {currentUser?.hireDate ? new Date(currentUser.hireDate).toLocaleDateString('fr-FR') : 'N/A'} (Non modifiable)
                 </div>
               </div>
               <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 mt-4">
@@ -379,7 +399,12 @@ GROUP BY p.id;`;
                   </span>
                 </div>
               </div>
-            </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button type="button" onClick={() => setShowProfileModal(false)} className="px-6 py-3 text-slate-500 font-bold rounded-2xl hover:bg-slate-50">Annuler</button>
+                <button type="submit" className="px-8 py-3 bg-indigo-900 text-white font-black rounded-2xl hover:bg-black transition-all shadow-xl">Enregistrer</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

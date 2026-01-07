@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, LeaveStatus, LeaveType, User } from '../types';
 import { supabase } from '../lib/supabase';
-import { calculateMoroccanAccruedDays, calculateBalanceAnalysis } from '../utils/calculations';
+import { calculateMoroccanAccruedDays, calculateBalanceAnalysis, calculateBusinessDays } from '../utils/calculations';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 
 interface AdminPanelProps {
@@ -24,6 +24,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [decisionModal, setDecisionModal] = useState<{ id: string, action: LeaveStatus } | null>(null);
   const [editRequestModal, setEditRequestModal] = useState<any | null>(null);
+  const [isCreatingRequest, setIsCreatingRequest] = useState(false);
+  const [newAdminRequest, setNewAdminRequest] = useState({ userId: '', type: LeaveType.ANNUAL, startDate: '', endDate: '', comment: '' });
   const [managerComment, setManagerComment] = useState('');
 
   const departments = ["Direction", "Sinistre", "Production", "Opérations", "Finance", "RH"];
@@ -290,6 +292,40 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     }
   };
 
+  const handleAdminCreateRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAdminRequest.userId || !newAdminRequest.startDate || !newAdminRequest.endDate) {
+      if (onNotification) onNotification("Veuillez remplir tous les champs obligatoires");
+      return;
+    }
+
+    try {
+      const duration = calculateBusinessDays(newAdminRequest.startDate, newAdminRequest.endDate);
+
+      const { error } = await supabase.from('leave_requests').insert([{
+        user_id: newAdminRequest.userId,
+        type: newAdminRequest.type,
+        start_date: newAdminRequest.startDate,
+        end_date: newAdminRequest.endDate,
+        status: LeaveStatus.APPROVED, // Admin created requests are auto-approved
+        duration: duration,
+        comment: newAdminRequest.comment || 'Créé par l\'administrateur',
+        manager_comment: 'Validation automatique (Création Admin)'
+      }]);
+
+      if (error) throw error;
+
+      await auditLog('CREATE_REQUEST_ADMIN', { ...newAdminRequest, duration, status: 'APPROVED' });
+
+      setIsCreatingRequest(false);
+      setNewAdminRequest({ userId: '', type: LeaveType.ANNUAL, startDate: '', endDate: '', comment: '' });
+      fetchData();
+      if (onNotification) onNotification("Demande créée et approuvée avec succès");
+    } catch (e: any) {
+      if (onNotification) onNotification(`Erreur création: ${e.message}`);
+    }
+  };
+
   const stats = {
     pending: allRequests.filter(r => r.status === LeaveStatus.PENDING).length,
     totalEmployees: dbUsers.length,
@@ -393,9 +429,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
       {view === 'requests' && (
         <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in relative">
           {loading && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center"><div className="w-10 h-10 border-4 border-indigo-900 border-t-transparent rounded-full animate-spin"></div></div>}
-          <div className="p-8 border-b border-slate-100">
-            <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Demandes en Attente de Validation</h3>
-            <p className="text-slate-500 text-sm mt-2">{stats.pending} demande(s) nécessitent votre attention</p>
+          <div className="p-8 border-b border-slate-100 flex justify-between items-center">
+            <div>
+              <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Demandes en Attente de Validation</h3>
+              <p className="text-slate-500 text-sm mt-2">{stats.pending} demande(s) nécessitent votre attention</p>
+            </div>
+            <button
+              onClick={() => setIsCreatingRequest(true)}
+              className="bg-indigo-900 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-lg hover:bg-black transition-all flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+              Nouvelle Demande
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -1040,6 +1085,57 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
           </div>
         )
       }
+      {/* Admin Create Request Modal */}
+      {isCreatingRequest && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[90] flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Créer une demande (Admin)</h3>
+            <form onSubmit={handleAdminCreateRequest} className="space-y-6">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Collaborateur</label>
+                <select
+                  required
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
+                  value={newAdminRequest.userId}
+                  onChange={e => setNewAdminRequest({ ...newAdminRequest, userId: e.target.value })}
+                >
+                  <option value="">Sélectionner un collaborateur...</option>
+                  {dbUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Type de congé</label>
+                <select
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
+                  value={newAdminRequest.type}
+                  onChange={e => setNewAdminRequest({ ...newAdminRequest, type: e.target.value as LeaveType })}
+                >
+                  {Object.values(LeaveType).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Début</label>
+                  <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={newAdminRequest.startDate} onChange={e => setNewAdminRequest({ ...newAdminRequest, startDate: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Fin</label>
+                  <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={newAdminRequest.endDate} onChange={e => setNewAdminRequest({ ...newAdminRequest, endDate: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Commentaire</label>
+                <textarea rows={2} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none resize-none" placeholder="Motif (optionnel)..." value={newAdminRequest.comment} onChange={e => setNewAdminRequest({ ...newAdminRequest, comment: e.target.value })} />
+              </div>
+              <div className="flex justify-end gap-3 pt-4">
+                <button type="button" onClick={() => setIsCreatingRequest(false)} className="px-6 py-3 text-slate-500 font-bold rounded-2xl hover:bg-slate-50">Annuler</button>
+                <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 shadow-lg">Créer & Approuver</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div >
   );
 };
