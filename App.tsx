@@ -161,26 +161,53 @@ const App: React.FC = () => {
     if (!currentUser) return;
     setIsSaving(true);
 
+    // Validation
+    if (!updatedUser.fullName?.trim()) {
+      addNotification("Le nom est requis");
+      setIsSaving(false);
+      return;
+    }
+    if (!updatedUser.email?.trim()) {
+      addNotification("L'email est requis");
+      setIsSaving(false);
+      return;
+    }
+
     try {
+      setLoading(true);
+      const updateData: any = {
+        full_name: updatedUser.fullName,
+        email: updatedUser.email,
+        department: updatedUser.department,
+        hire_date: updatedUser.hireDate
+      };
+
+      // Si manager_id est fourni, on l'inclut (optionnel selon le rôle)
+      if (updatedUser.managerId !== undefined) {
+        updateData.manager_id = updatedUser.managerId || null;
+      }
+
       const { error } = await supabase
         .from('profiles')
-        .update({
-          full_name: updatedUser.fullName,
-          email: updatedUser.email,
-          department: updatedUser.department,
-          manager_id: updatedUser.managerId,
-          hire_date: updatedUser.hireDate
-        })
+        .update(updateData)
         .eq('id', currentUser.id);
 
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes('manager_id') || error.message?.includes('column')) {
+          throw new Error("Impossible de sauvegarder : Certaines colonnes (comme manager_id) manquent dans votre base de données. Veuillez exécuter le nouveau script SQL d'installation.");
+        }
+        throw error;
+      }
 
-      setCurrentUser({ ...currentUser, ...updatedUser });
-      addNotification('Profil mis à jour avec succès ✨');
+      const userWithUpdates = { ...currentUser, ...updatedUser };
+      setCurrentUser(userWithUpdates);
+      addNotification("Profil mis à jour avec succès ✨");
       setShowProfileModal(false);
-    } catch (error: any) {
-      addNotification(`Erreur lors de la mise à jour : ${error.message}`);
+    } catch (e: any) {
+      console.error("Profile update error", e);
+      addNotification("Erreur: " + e.message);
     } finally {
+      setLoading(false);
       setIsSaving(false);
     }
   };
@@ -219,21 +246,10 @@ const App: React.FC = () => {
                   <div className="flex flex-wrap gap-4">
                     <button
                       onClick={() => {
-                        const sql = `-- MTP RH : SCRIPT D'INSTALLATION V4 (CLEAN & INSTALL)
--- Suppression exhaustive pour éviter l'erreur 42710
-DROP POLICY IF EXISTS "Enable all access for all users" ON public.leave_requests;
-DROP POLICY IF EXISTS "Enable all access for all users" ON public.profiles;
-DROP POLICY IF EXISTS "Public Access Requests" ON public.leave_requests;
-DROP POLICY IF EXISTS "Public Access Profiles" ON public.profiles;
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
-DROP POLICY IF EXISTS "v2_full_access_profiles" ON public.profiles;
-DROP POLICY IF EXISTS "v2_full_access_requests" ON public.leave_requests;
-DROP POLICY IF EXISTS "app_full_access_profiles" ON public.profiles;
-DROP POLICY IF EXISTS "app_full_access_requests" ON public.leave_requests;
-DROP POLICY IF EXISTS "app_v3_access_profiles" ON public.profiles;
-DROP POLICY IF EXISTS "app_v3_access_requests" ON public.leave_requests;
+                        const sql = `-- MTP RH : SCRIPT D'INSTALLATION COMPLET V5.3 (MODERN & SECURE)
+-- Ce script initialise la base de données avec toutes les colonnes nécessaires (manager_id, is_active, balance_adjustment, preferences).
 
--- Création robuste
+-- 1. Tables de base
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     full_name TEXT NOT NULL,
@@ -242,8 +258,17 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     department TEXT,
     hire_date DATE DEFAULT CURRENT_DATE,
     manager_id UUID REFERENCES public.profiles(id),
+    is_active BOOLEAN DEFAULT TRUE,
+    balance_adjustment NUMERIC DEFAULT 0,
+    preferences JSONB DEFAULT '{"email_notifications": true, "app_notifications": true, "theme": "light"}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Si la table existe déjà, on ajoute les colonnes manquantes
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS manager_id UUID REFERENCES public.profiles(id);
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS balance_adjustment NUMERIC DEFAULT 0;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{"email_notifications": true, "app_notifications": true, "theme": "light"}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS public.leave_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -258,38 +283,6 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Clé étrangère (si la table existe déjà sans contrainte)
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name = 'leave_requests_user_id_fkey' 
-        AND table_name = 'leave_requests'
-    ) THEN
-        ALTER TABLE public.leave_requests 
-        ADD CONSTRAINT leave_requests_user_id_fkey 
-        FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-    END IF;
-END $$;
-
--- Sécurité RLS
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.leave_requests ENABLE ROW LEVEL SECURITY;
-
--- Politiques v4 (Uniques)
-CREATE POLICY "mtprh_v4_profiles" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "mtprh_v4_requests" ON public.leave_requests FOR ALL USING (true) WITH CHECK (true);
-
--- Admin
-INSERT INTO public.profiles (id, full_name, email, role, department, hire_date)
-VALUES ('00000000-0000-0000-0000-000000000001', 'Ahmed Mansouri', 'ahmed.mansouri@mtp.ma', 'ADMIN', 'Direction', '2020-03-10')
-ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';
-
--- Mises à jour v5 (Administration Avancée)
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS balance_adjustment NUMERIC DEFAULT 0;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{"email_notifications": true, "app_notifications": true}'::jsonb;
-
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     action TEXT NOT NULL,
@@ -298,23 +291,23 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 2. Sécurité RLS (Row Level Security)
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.leave_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "admin_view_logs" ON public.audit_logs FOR SELECT TO authenticated USING (
-  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'ADMIN')
-);
-CREATE POLICY "admin_insert_logs" ON public.audit_logs FOR INSERT TO authenticated WITH CHECK (true);
 
--- Vue pour les reports de solde (simulation)
-CREATE OR REPLACE VIEW public.leave_balance_reports AS
-SELECT 
-    p.id as user_id,
-    p.full_name,
-    p.hire_date,
-    (EXTRACT(YEAR FROM age(NOW(), p.hire_date)) * 18) as theoretical_total,
-    COALESCE(SUM(lr.duration) FILTER (WHERE lr.status = 'APPROVED'), 0) as total_consumed
-FROM public.profiles p
-LEFT JOIN public.leave_requests lr ON p.id = lr.user_id
-GROUP BY p.id;`;
+-- Politiques simplifiées (À restreindre selon vos besoins en production)
+DROP POLICY IF EXISTS "mtprh_v5_access" ON public.profiles;
+CREATE POLICY "mtprh_v5_access" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "mtprh_v5_requests" ON public.leave_requests;
+CREATE POLICY "mtprh_v5_requests" ON public.leave_requests FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "mtprh_v5_logs" ON public.audit_logs;
+CREATE POLICY "mtprh_v5_logs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
+
+-- 3. Données initiales
+INSERT INTO public.profiles (id, full_name, email, role, department, hire_date, is_active)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Ahmed Mansouri', 'ahmed.mansouri@mtp.ma', 'ADMIN', 'Direction Générale', '2020-03-10', true)
+ON CONFLICT (email) DO UPDATE SET role = 'ADMIN', is_active = true;`;
                         navigator.clipboard.writeText(sql);
                         addNotification("Script d'installation mtpRH copié !");
                       }}

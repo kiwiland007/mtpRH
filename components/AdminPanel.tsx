@@ -164,26 +164,39 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     }
 
     try {
-      const { error } = await supabase.from('profiles').update({
+      setLoading(true);
+      const updateData: any = {
         full_name: editingUser.full_name,
         department: editingUser.department,
         role: editingUser.role,
         email: editingUser.email,
         hire_date: editingUser.hire_date,
-        is_active: editingUser.is_active,
-        balance_adjustment: Number(editingUser.balance_adjustment),
-        manager_id: editingUser.manager_id || null
-      }).eq('id', editingUser.id);
-      if (error) throw error;
+      };
+
+      // Colonnes optionnelles avec fallback si le schéma n'est pas à jour
+      if (editingUser.hasOwnProperty('is_active')) updateData.is_active = editingUser.is_active;
+      if (editingUser.hasOwnProperty('balance_adjustment')) updateData.balance_adjustment = Number(editingUser.balance_adjustment);
+      if (editingUser.manager_id !== undefined) updateData.manager_id = editingUser.manager_id || null;
+
+      const { error } = await supabase.from('profiles').update(updateData).eq('id', editingUser.id);
+
+      if (error) {
+        if (error.message?.includes('column') || error.message?.includes('manager_id')) {
+          throw new Error("Schéma de base de données obsolète. Veuillez copier et exécuter le script SQL dans 'Paramètres' pour ajouter les colonnes manquantes (manager_id, is_active, etc.).");
+        }
+        throw error;
+      }
 
       await auditLog('UPDATE_USER', { target: editingUser.full_name, id: editingUser.id, changes: editingUser });
 
       setEditingUser(null);
       fetchData();
-      if (onNotification) onNotification("Utilisateur mis à jour avec succès");
+      if (onNotification) onNotification("Talent mis à jour avec succès ✨");
     } catch (err: any) {
       if (onNotification) onNotification(`Erreur: ${err.message}`);
       else alert("Erreur: " + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
