@@ -36,7 +36,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     role: UserRole.EMPLOYEE,
     department: 'Sinistre',
     hire_date: new Date().toISOString().split('T')[0],
-    is_active: true
+    is_active: true,
+    manager_id: ''
   });
 
   const auditLog = async (action: string, details: any) => {
@@ -170,7 +171,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
         email: editingUser.email,
         hire_date: editingUser.hire_date,
         is_active: editingUser.is_active,
-        balance_adjustment: Number(editingUser.balance_adjustment)
+        balance_adjustment: Number(editingUser.balance_adjustment),
+        manager_id: editingUser.manager_id || null
       }).eq('id', editingUser.id);
       if (error) throw error;
 
@@ -230,13 +232,29 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     }
 
     try {
-      const { error } = await supabase.from('profiles').insert([newUser]);
+      const { error } = await supabase.from('profiles').insert([{
+        full_name: newUser.full_name,
+        email: newUser.email,
+        role: newUser.role,
+        department: newUser.department,
+        hire_date: newUser.hire_date,
+        is_active: newUser.is_active,
+        manager_id: newUser.manager_id || null
+      }]);
       if (error) throw error;
 
       await auditLog('CREATE_USER', { name: newUser.full_name, email: newUser.email });
 
       setIsAdding(false);
-      setNewUser({ full_name: '', email: '', role: UserRole.EMPLOYEE, department: 'Sinistre', hire_date: new Date().toISOString().split('T')[0], is_active: true });
+      setNewUser({
+        full_name: '',
+        email: '',
+        role: UserRole.EMPLOYEE,
+        department: 'Sinistre',
+        hire_date: new Date().toISOString().split('T')[0],
+        is_active: true,
+        manager_id: ''
+      });
       fetchData();
       if (onNotification) onNotification("Nouvel utilisateur ajouté avec succès");
     } catch (err: any) {
@@ -907,6 +925,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                       />
                       <span className="text-sm font-bold text-slate-700">Compte Actif (Décocher pour archiver)</span>
                     </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Manager Direct</label>
+                      <select
+                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none"
+                        value={editingUser.manager_id || ''}
+                        onChange={e => setEditingUser({ ...editingUser, manager_id: e.target.value })}
+                      >
+                        <option value="">Aucun (Root Admin)</option>
+                        {dbUsers.filter(u => u.id !== editingUser.id).map(u => (
+                          <option key={u.id} value={u.id}>{u.full_name} ({u.role})</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-slate-400 mt-1 px-1">Définit le responsable qui recevra les demandes de congés.</p>
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-6">
@@ -1085,6 +1118,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                 <div className="col-span-full">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
                   <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.hire_date} onChange={e => setNewUser({ ...newUser, hire_date: e.target.value })} />
+                </div>
+                <div className="col-span-full">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Manager Direct</label>
+                  <select
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none"
+                    value={newUser.manager_id}
+                    onChange={e => setNewUser({ ...newUser, manager_id: e.target.value })}
+                  >
+                    <option value="">Aucun (Root Admin)</option>
+                    {dbUsers.map(u => (
+                      <option key={u.id} value={u.id}>{u.full_name} ({u.role})</option>
+                    ))}
+                  </select>
                 </div>
                 <button type="submit" className="col-span-full bg-indigo-900 text-white py-6 rounded-[2rem] font-black text-sm hover:bg-black transition-all">Intégrer dans MOUMEN RH</button>
                 <button type="button" onClick={() => setIsAdding(false)} className="col-span-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest">Fermer</button>

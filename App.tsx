@@ -42,10 +42,39 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (currentUser) {
+      syncUserProfile();
       fetchRequests();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]);
+
+  const syncUserProfile = async () => {
+    if (!currentUser) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
+
+      if (data && !error) {
+        setCurrentUser({
+          id: data.id,
+          email: data.email,
+          fullName: data.full_name,
+          role: data.role as UserRole,
+          department: data.department || '',
+          hireDate: data.hire_date,
+          managerId: data.manager_id,
+          is_active: data.is_active,
+          balance_adjustment: data.balance_adjustment,
+          preferences: data.preferences
+        });
+      }
+    } catch (e) {
+      console.error("Sync error", e);
+    }
+  };
 
   const fetchRequests = async () => {
     setLoading(true);
@@ -148,7 +177,8 @@ const App: React.FC = () => {
         .update({
           full_name: updatedUser.fullName,
           email: updatedUser.email,
-          department: updatedUser.department
+          department: updatedUser.department,
+          manager_id: updatedUser.managerId
         })
         .eq('id', currentUser.id);
 
@@ -220,6 +250,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     role TEXT NOT NULL CHECK (role IN ('EMPLOYEE', 'MANAGER', 'HR', 'ADMIN')),
     department TEXT,
     hire_date DATE DEFAULT CURRENT_DATE,
+    manager_id UUID REFERENCES public.profiles(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -391,6 +422,11 @@ GROUP BY p.id;`;
                     <option key={d} value={d}>{d}</option>
                   ))}
                 </select>
+              </div>
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Identifiant Système</p>
+                <p className="text-xs font-mono text-slate-500 truncate">{currentUser?.id}</p>
+                <p className="text-[10px] text-slate-400 mt-2 italic">Cet identifiant (admin-root concept) est maintenant lié à votre profil réel dans la base de données.</p>
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>

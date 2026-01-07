@@ -6,6 +6,12 @@
 - **Correction des permissions de modification profil** : Implémentation d'une vérification stricte des rôles (`ADMIN` ou `HR`) avant toute modification en base de données dans `AdminPanel`.
 # Changelog
 
+## [5.3.0] - 2026-01-07
+### Added
+- **Hierarchy Management**: New `manager_id` field in profiles allowing for a complete organizational chart.
+- **Root-Admin Modifiability**: The primary admin account is now a fully editable record, allowing its identity and role to be transferred.
+- **Dynamic Profile Sync**: The application now syncs the current user session with database changes in real-time.
+
 ## [5.1.0] - 2026-01-07
 ### Added
 - **Admin Create Leave**: Administrators can now create and auto-approve leave requests on behalf of any employee.
