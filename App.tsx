@@ -155,8 +155,8 @@ const App: React.FC = () => {
     setShowSupportModal(false);
   };
 
-  // Fonction disponible pour mise à jour future du profil
-  // Actuellement le modal affiche seulement les informations en lecture
+  // Fonction de mise à jour du profil utilisateur
+  // Permet de synchroniser les informations personnelles avec la base de données Supabase.
   const handleUpdateProfile = async (updatedUser: Partial<User>) => {
     if (!currentUser) return;
     setIsSaving(true);
