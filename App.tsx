@@ -27,6 +27,10 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'request' | 'calendar' | 'admin'>('dashboard');
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [notifications, setNotifications] = useState<string[]>([]);
+  const [isAdding, setIsAdding] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [dbUsers, setDbUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -136,6 +140,7 @@ const App: React.FC = () => {
   // Actuellement le modal affiche seulement les informations en lecture
   const handleUpdateProfile = async (updatedUser: Partial<User>) => {
     if (!currentUser) return;
+    setIsSaving(true);
 
     try {
       const { error } = await supabase
@@ -150,10 +155,12 @@ const App: React.FC = () => {
       if (error) throw error;
 
       setCurrentUser({ ...currentUser, ...updatedUser });
-      addNotification('Profil mis à jour avec succès');
+      addNotification('Profil mis à jour avec succès ✨');
       setShowProfileModal(false);
     } catch (error: any) {
       addNotification(`Erreur lors de la mise à jour : ${error.message}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -402,7 +409,14 @@ GROUP BY p.id;`;
 
               <div className="flex justify-end gap-3 pt-4">
                 <button type="button" onClick={() => setShowProfileModal(false)} className="px-6 py-3 text-slate-500 font-bold rounded-2xl hover:bg-slate-50">Annuler</button>
-                <button type="submit" className="px-8 py-3 bg-indigo-900 text-white font-black rounded-2xl hover:bg-black transition-all shadow-xl">Enregistrer</button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="px-8 py-3 bg-indigo-900 text-white font-black rounded-2xl hover:bg-black transition-all shadow-xl disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSaving && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
+                  {isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
               </div>
             </form>
           </div>

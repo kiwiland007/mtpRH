@@ -112,6 +112,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     }
   };
 
+  const openCreateRequestForUser = (userId: string) => {
+    setNewAdminRequest({ ...newAdminRequest, userId });
+    setIsCreatingRequest(true);
+  };
+
   const getUserLeaveStats = (userId: string, hireDate: string, adjustment: number = 0) => {
     const analysis = calculateBalanceAnalysis(hireDate,
       allRequests
@@ -838,6 +843,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                               setView('history');
                             }} className="p-2 text-slate-400 hover:bg-slate-50 rounded-xl transition-all" title="Voir historique">
                               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </button>
+                            <button onClick={() => openCreateRequestForUser(u.id)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Ajouter congé">
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM12 18v-6m-3 3h6" /></svg>
                             </button>
                             <button onClick={() => setEditingUser(u)} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">Gérer</button>
                             <button onClick={() => handleDeleteUser(u.id, u.full_name)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
