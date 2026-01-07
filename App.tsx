@@ -178,7 +178,8 @@ const App: React.FC = () => {
           full_name: updatedUser.fullName,
           email: updatedUser.email,
           department: updatedUser.department,
-          manager_id: updatedUser.managerId
+          manager_id: updatedUser.managerId,
+          hire_date: updatedUser.hireDate
         })
         .eq('id', currentUser.id);
 
@@ -390,8 +391,8 @@ GROUP BY p.id;`;
               handleUpdateProfile({
                 fullName: formData.get('fullName') as string,
                 department: formData.get('department') as string,
-                // Email is generally not editable by user for security/identity reasons, but we allow it if requested
-                email: formData.get('email') as string
+                email: formData.get('email') as string,
+                hireDate: formData.get('hireDate') as string
               });
             }} className="space-y-6">
               <div>
@@ -430,9 +431,18 @@ GROUP BY p.id;`;
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
-                <div className="bg-slate-100 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-500 cursor-not-allowed">
-                  {currentUser?.hireDate ? new Date(currentUser.hireDate).toLocaleDateString('fr-FR') : 'N/A'} (Non modifiable)
-                </div>
+                {currentUser?.role === UserRole.ADMIN ? (
+                  <input
+                    name="hireDate"
+                    type="date"
+                    defaultValue={currentUser?.hireDate}
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-900 focus:border-indigo-500 outline-none"
+                  />
+                ) : (
+                  <div className="bg-slate-100 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold text-slate-500 cursor-not-allowed">
+                    {currentUser?.hireDate ? new Date(currentUser.hireDate).toLocaleDateString('fr-FR') : 'N/A'} (Non modifiable)
+                  </div>
+                )}
               </div>
               <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 mt-4">
                 <div className="flex justify-between items-center mb-4">
