@@ -1,10 +1,19 @@
-# Historique des Modifications - v5.0 (Administration Avancée)
+# Changelog - mtpRH
 
-## 📅 07 Janvier 2026
+Toutes les modifications notables apportées à ce projet seront documentées dans ce fichier.
 
-### 🛡️ Sécurité et Permissions
-- **Correction des permissions de modification profil** : Implémentation d'une vérification stricte des rôles (`ADMIN` ou `HR`) avant toute modification en base de données dans `AdminPanel`.
-# Changelog
+## [5.4.0] - 2026-01-07
+### Added
+- **Global Code Audit**: Thorough review of all components for potential bugs and security flaws.
+- **Robust Schema Fallbacks**: Enhanced database operations to gracefully handle schema mismatches with clear user instructions.
+- **Admin Dashboard Pro**: Detailed analytics with department distribution and HR activity tracking.
+- **Enhanced Type Safety**: Added missing React and DOM type definitions to resolve linting errors.
+
+### Fixed
+- **Profile Update Bug**: Resolved "manager_id" column missing error during profile updates.
+- **JSX Structure**: Repaired broken JSX flow in AdminPanel that was causing UI rendering issues.
+- **Validation Consistency**: Unified input validation across all forms.
+- **Hierarchy Mapping**: Fixed a bug where manager IDs were not correctly persisted if they were empty.
 
 ## [5.3.0] - 2026-01-07
 ### Added

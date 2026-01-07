@@ -1,7 +1,7 @@
 {
   "name": "mtprh---gestion-rh-maroc",
   "private": true,
-  "version": "0.0.0",
+  "version": "5.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,6 +15,8 @@
     "@supabase/supabase-js": "^2.39.7"
   },
   "devDependencies": {
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
