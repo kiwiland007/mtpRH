@@ -28,7 +28,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
   const [newAdminRequest, setNewAdminRequest] = useState({ userId: '', type: LeaveType.ANNUAL, startDate: '', endDate: '', comment: '' });
   const [managerComment, setManagerComment] = useState('');
 
-  const departments = ["Direction", "Sinistre", "Production", "Opérations", "Finance", "RH"];
+  const departments = ["Direction Générale", "Direction", "Sinistre", "Production", "Opérations", "Finance", "RH"];
 
   const [newUser, setNewUser] = useState({
     full_name: '',
@@ -211,37 +211,52 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Security Check
+    if (user?.role !== 'ADMIN' && user?.role !== 'HR') {
+      if (onNotification) onNotification("Action non autorisée : Droits insuffisants");
+      return;
+    }
+
     // Validation
     if (!newUser.full_name.trim()) {
       if (onNotification) onNotification("Le nom complet est requis");
-      else alert("Le nom complet est requis");
       return;
     }
 
     if (!newUser.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newUser.email)) {
       if (onNotification) onNotification("Email invalide");
-      else alert("Email invalide");
       return;
     }
 
     const hireDate = new Date(newUser.hire_date);
-    if (isNaN(hireDate.getTime()) || hireDate > new Date()) {
+    if (isNaN(hireDate.getTime())) {
       if (onNotification) onNotification("Date d'embauche invalide");
-      else alert("Date d'embauche invalide");
       return;
     }
 
     try {
-      const { error } = await supabase.from('profiles').insert([{
+      setLoading(true);
+      // We explicitly list columns to avoid issues if the table is older than expected
+      const insertData: any = {
         full_name: newUser.full_name,
         email: newUser.email,
         role: newUser.role,
         department: newUser.department,
         hire_date: newUser.hire_date,
-        is_active: newUser.is_active,
-        manager_id: newUser.manager_id || null
-      }]);
-      if (error) throw error;
+      };
+
+      // Add conditional columns for backward compatibility if needed, but normally we expect them
+      if (newUser.hasOwnProperty('is_active')) insertData.is_active = newUser.is_active;
+      if (newUser.manager_id) insertData.manager_id = newUser.manager_id;
+
+      const { error } = await supabase.from('profiles').insert([insertData]);
+
+      if (error) {
+        if (error.message?.includes('column')) {
+          throw new Error(`La base de données n'est pas à jour. Veuillez exécuter le script SQL dans Paramètres. (Erreur: ${error.message})`);
+        }
+        throw error;
+      }
 
       await auditLog('CREATE_USER', { name: newUser.full_name, email: newUser.email });
 
@@ -256,10 +271,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
         manager_id: ''
       });
       fetchData();
-      if (onNotification) onNotification("Nouvel utilisateur ajouté avec succès");
+      if (onNotification) onNotification("Nouvel utilisateur ajouté avec succès ✨");
     } catch (err: any) {
       if (onNotification) onNotification(`Erreur: ${err.message}`);
       else alert("Erreur: " + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -290,17 +307,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     if (!editRequestModal) return;
 
     try {
-      // Calculer la nouvelle durée
-      // Note: On pourrait réutiliser une fonction utilitaire ici si on avait accès au frontend
-      // Pour l'instant on fait un calcul simple de business days si possible, sinon durée brute
-      // Mais idéalement il faudrait appeler calculateBusinessDays du utils/calculations
-      const businessDays = Math.ceil((new Date(editRequestModal.end_date).getTime() - new Date(editRequestModal.start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      const businessDays = calculateBusinessDays(editRequestModal.start_date, editRequestModal.end_date);
 
       const { error } = await supabase.from('leave_requests').update({
         type: editRequestModal.type,
         start_date: editRequestModal.start_date,
         end_date: editRequestModal.end_date,
-        duration: businessDays // Approximation simplifiée ici, l'idéal est de re-importer calculateBusinessDays
+        duration: businessDays
       }).eq('id', editRequestModal.id);
 
       if (error) throw error;
@@ -425,24 +438,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
             </div>
           </div>
           <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
-            <h3 className="text-xl font-black text-slate-900 mb-6">Statistiques des Demandes</h3>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
-                <span className="text-sm font-bold text-slate-600">Total des demandes</span>
-                <span className="text-2xl font-black text-slate-900">{allRequests.length}</span>
-              </div>
-              <div className="flex justify-between items-center p-4 bg-emerald-50 rounded-2xl">
-                <span className="text-sm font-bold text-emerald-700">Approuvées</span>
-                <span className="text-2xl font-black text-emerald-600">{stats.approved}</span>
-              </div>
-              <div className="flex justify-between items-center p-4 bg-amber-50 rounded-2xl">
-                <span className="text-sm font-bold text-amber-700">En attente</span>
-                <span className="text-2xl font-black text-amber-600">{stats.pending}</span>
-              </div>
-              <div className="flex justify-between items-center p-4 bg-rose-50 rounded-2xl">
-                <span className="text-sm font-bold text-rose-700">Refusées</span>
-                <span className="text-2xl font-black text-rose-600">{allRequests.filter(r => r.status === LeaveStatus.REJECTED).length}</span>
-              </div>
+            <h3 className="text-xl font-black text-slate-900 mb-6">Activité RH</h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={deptData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                  <YAxis axisLine={false} tickLine={false} />
+                  <Tooltip cursor={{ fill: '#f8fafc' }} />
+                  <Bar dataKey="value" fill="#1e3a8a" radius={[10, 10, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
         </div>
@@ -537,7 +543,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
             </table>
           </div>
         </div >
-      )}
+      )
+      }
 
       {/* History View */}
       {
@@ -1140,55 +1147,57 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
         )
       }
       {/* Admin Create Request Modal */}
-      {isCreatingRequest && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[90] flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in">
-            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Créer une demande (Admin)</h3>
-            <form onSubmit={handleAdminCreateRequest} className="space-y-6">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Collaborateur</label>
-                <select
-                  required
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
-                  value={newAdminRequest.userId}
-                  onChange={e => setNewAdminRequest({ ...newAdminRequest, userId: e.target.value })}
-                >
-                  <option value="">Sélectionner un collaborateur...</option>
-                  {dbUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Type de congé</label>
-                <select
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
-                  value={newAdminRequest.type}
-                  onChange={e => setNewAdminRequest({ ...newAdminRequest, type: e.target.value as LeaveType })}
-                >
-                  {Object.values(LeaveType).map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+      {
+        isCreatingRequest && (
+          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[90] flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Créer une demande (Admin)</h3>
+              <form onSubmit={handleAdminCreateRequest} className="space-y-6">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Début</label>
-                  <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={newAdminRequest.startDate} onChange={e => setNewAdminRequest({ ...newAdminRequest, startDate: e.target.value })} />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Collaborateur</label>
+                  <select
+                    required
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
+                    value={newAdminRequest.userId}
+                    onChange={e => setNewAdminRequest({ ...newAdminRequest, userId: e.target.value })}
+                  >
+                    <option value="">Sélectionner un collaborateur...</option>
+                    {dbUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                  </select>
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Fin</label>
-                  <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={newAdminRequest.endDate} onChange={e => setNewAdminRequest({ ...newAdminRequest, endDate: e.target.value })} />
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Type de congé</label>
+                  <select
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
+                    value={newAdminRequest.type}
+                    onChange={e => setNewAdminRequest({ ...newAdminRequest, type: e.target.value as LeaveType })}
+                  >
+                    {Object.values(LeaveType).map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Commentaire</label>
-                <textarea rows={2} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none resize-none" placeholder="Motif (optionnel)..." value={newAdminRequest.comment} onChange={e => setNewAdminRequest({ ...newAdminRequest, comment: e.target.value })} />
-              </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setIsCreatingRequest(false)} className="px-6 py-3 text-slate-500 font-bold rounded-2xl hover:bg-slate-50">Annuler</button>
-                <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 shadow-lg">Créer & Approuver</button>
-              </div>
-            </form>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Début</label>
+                    <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={newAdminRequest.startDate} onChange={e => setNewAdminRequest({ ...newAdminRequest, startDate: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Fin</label>
+                    <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={newAdminRequest.endDate} onChange={e => setNewAdminRequest({ ...newAdminRequest, endDate: e.target.value })} />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Commentaire</label>
+                  <textarea rows={2} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none resize-none" placeholder="Motif (optionnel)..." value={newAdminRequest.comment} onChange={e => setNewAdminRequest({ ...newAdminRequest, comment: e.target.value })} />
+                </div>
+                <div className="flex justify-end gap-3 pt-4">
+                  <button type="button" onClick={() => setIsCreatingRequest(false)} className="px-6 py-3 text-slate-500 font-bold rounded-2xl hover:bg-slate-50">Annuler</button>
+                  <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 shadow-lg">Créer & Approuver</button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
     </div >
   );
