@@ -29,6 +29,13 @@ export interface User {
   department: string;
   hireDate: string;
   managerId?: string;
+  is_active?: boolean;
+  balance_adjustment?: number;
+  preferences?: {
+    email_notifications?: boolean;
+    app_notifications?: boolean;
+    theme?: 'light' | 'dark';
+  };
 }
 
 export interface LeaveRequest {

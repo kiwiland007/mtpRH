@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole, LeaveStatus, LeaveType, User } from '../types';
 import { supabase } from '../lib/supabase';
-import { calculateMoroccanAccruedDays } from '../utils/calculations';
+import { calculateMoroccanAccruedDays, calculateBalanceAnalysis } from '../utils/calculations';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 
 interface AdminPanelProps {
@@ -23,6 +23,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
   const [isAdding, setIsAdding] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [decisionModal, setDecisionModal] = useState<{ id: string, action: LeaveStatus } | null>(null);
+  const [editRequestModal, setEditRequestModal] = useState<any | null>(null);
   const [managerComment, setManagerComment] = useState('');
 
   const departments = ["Direction", "Sinistre", "Production", "Opérations", "Finance", "RH"];
@@ -110,15 +111,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
   };
 
   const getUserLeaveStats = (userId: string, hireDate: string, adjustment: number = 0) => {
-    const totalAccrued = calculateMoroccanAccruedDays(hireDate) + (Number(adjustment) || 0);
-    const consumed = allRequests
-      .filter(r => r.user_id === userId && r.status === LeaveStatus.APPROVED)
-      .reduce((sum, r) => sum + Number(r.duration), 0);
+    const analysis = calculateBalanceAnalysis(hireDate,
+      allRequests
+        .filter(r => r.user_id === userId && r.status === LeaveStatus.APPROVED)
+        .reduce((sum, r) => sum + Number(r.duration), 0),
+      adjustment
+    );
     return {
-      totalAccrued,
-      consumed,
-      remaining: Math.max(0, totalAccrued - consumed),
-      report: Math.max(0, totalAccrued - 18)
+      totalAccrued: analysis.totalAccrued,
+      consumed: analysis.consumed,
+      remaining: analysis.remaining,
+      report: analysis.carryOver
     };
   };
 
@@ -143,6 +146,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     if (isNaN(hireDate.getTime())) {
       if (onNotification) onNotification("Date d'embauche invalide");
       else alert("Date d'embauche invalide");
+      return;
+    }
+
+    // Security Check
+    if (user?.role !== 'ADMIN' && user?.role !== 'HR') {
+      if (onNotification) onNotification("Action non autorisée : Droits insuffisants");
       return;
     }
 
@@ -248,6 +257,36 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     } catch (err: any) {
       if (onNotification) onNotification(`Erreur critique: ${err.message}`);
       else alert("Erreur critique: " + err.message);
+    }
+  };
+
+  const handleEditRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editRequestModal) return;
+
+    try {
+      // Calculer la nouvelle durée
+      // Note: On pourrait réutiliser une fonction utilitaire ici si on avait accès au frontend
+      // Pour l'instant on fait un calcul simple de business days si possible, sinon durée brute
+      // Mais idéalement il faudrait appeler calculateBusinessDays du utils/calculations
+      const businessDays = Math.ceil((new Date(editRequestModal.end_date).getTime() - new Date(editRequestModal.start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+      const { error } = await supabase.from('leave_requests').update({
+        type: editRequestModal.type,
+        start_date: editRequestModal.start_date,
+        end_date: editRequestModal.end_date,
+        duration: businessDays // Approximation simplifiée ici, l'idéal est de re-importer calculateBusinessDays
+      }).eq('id', editRequestModal.id);
+
+      if (error) throw error;
+
+      await auditLog('EDIT_REQUEST', { id: editRequestModal.id, new_data: editRequestModal });
+
+      setEditRequestModal(null);
+      fetchData();
+      if (onNotification) onNotification('Demande modifiée avec succès');
+    } catch (e: any) {
+      if (onNotification) onNotification(`Erreur modification: ${e.message}`);
     }
   };
 
@@ -395,6 +434,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button
+                              onClick={() => setEditRequestModal(req)}
+                              className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-xl transition-all"
+                              title="Modifier"
+                            >
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                            </button>
+                            <button
                               onClick={() => setDecisionModal({ id: req.id, action: LeaveStatus.APPROVED })}
                               className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-emerald-700 transition-all"
                             >
@@ -422,181 +468,253 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
               </tbody>
             </table>
           </div>
-        </div>
+        </div >
       )}
 
       {/* History View */}
-      {view === 'history' && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in">
-          <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-6">
-            <div>
-              <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Historique des Congés</h3>
-              <p className="text-slate-500 text-sm mt-2">Consultez l'historique complet des demandes.</p>
+      {
+        view === 'history' && (
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in">
+            <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-6">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Historique des Congés</h3>
+                <p className="text-slate-500 text-sm mt-2">Consultez l'historique complet des demandes.</p>
+              </div>
+              <div className="flex gap-4">
+                <input
+                  placeholder="Rechercher un employé..."
+                  className="bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-indigo-500"
+                  value={historyFilter.employee}
+                  onChange={e => setHistoryFilter({ ...historyFilter, employee: e.target.value })}
+                />
+                <select
+                  className="bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none"
+                  value={historyFilter.status}
+                  onChange={e => setHistoryFilter({ ...historyFilter, status: e.target.value })}
+                >
+                  <option value="ALL">Tous les statuts</option>
+                  <option value={LeaveStatus.APPROVED}>Approuvé</option>
+                  <option value={LeaveStatus.REJECTED}>Refusé</option>
+                  <option value={LeaveStatus.PENDING}>En attente</option>
+                </select>
+              </div>
             </div>
-            <div className="flex gap-4">
-              <input
-                placeholder="Rechercher un employé..."
-                className="bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-indigo-500"
-                value={historyFilter.employee}
-                onChange={e => setHistoryFilter({ ...historyFilter, employee: e.target.value })}
-              />
-              <select
-                className="bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none"
-                value={historyFilter.status}
-                onChange={e => setHistoryFilter({ ...historyFilter, status: e.target.value })}
-              >
-                <option value="ALL">Tous les statuts</option>
-                <option value={LeaveStatus.APPROVED}>Approuvé</option>
-                <option value={LeaveStatus.REJECTED}>Refusé</option>
-                <option value={LeaveStatus.PENDING}>En attente</option>
-              </select>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">Collaborateur</th>
+                    <th className="px-6 py-4">Type</th>
+                    <th className="px-6 py-4 text-center">Durée</th>
+                    <th className="px-6 py-4 text-center">Statut</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {allRequests
+                    .filter(r => {
+                      if (historyFilter.status !== 'ALL' && r.status !== historyFilter.status) return false;
+                      if (historyFilter.employee && !r.profiles?.full_name.toLowerCase().includes(historyFilter.employee.toLowerCase())) return false;
+                      return true;
+                    })
+                    .map(req => (
+                      <tr key={req.id} className="hover:bg-slate-50 transition-all">
+                        <td className="px-6 py-4 font-mono text-xs text-slate-500">{new Date(req.created_at).toLocaleDateString('fr-FR')}</td>
+                        <td className="px-6 py-4 font-bold text-slate-700">{req.profiles?.full_name || 'Inconnu'}</td>
+                        <td className="px-6 py-4 font-medium text-slate-600">{req.type}</td>
+                        <td className="px-6 py-4 text-center font-bold text-slate-700">{req.duration} j</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === LeaveStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' :
+                            req.status === LeaveStatus.REJECTED ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
+                            }`}>
+                            {req.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  <th className="px-6 py-4">Date</th>
-                  <th className="px-6 py-4">Collaborateur</th>
-                  <th className="px-6 py-4">Type</th>
-                  <th className="px-6 py-4 text-center">Durée</th>
-                  <th className="px-6 py-4 text-center">Statut</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {allRequests
-                  .filter(r => {
-                    if (historyFilter.status !== 'ALL' && r.status !== historyFilter.status) return false;
-                    if (historyFilter.employee && !r.profiles?.full_name.toLowerCase().includes(historyFilter.employee.toLowerCase())) return false;
-                    return true;
-                  })
-                  .map(req => (
-                    <tr key={req.id} className="hover:bg-slate-50 transition-all">
-                      <td className="px-6 py-4 font-mono text-xs text-slate-500">{new Date(req.created_at).toLocaleDateString('fr-FR')}</td>
-                      <td className="px-6 py-4 font-bold text-slate-700">{req.profiles?.full_name || 'Inconnu'}</td>
-                      <td className="px-6 py-4 font-medium text-slate-600">{req.type}</td>
-                      <td className="px-6 py-4 text-center font-bold text-slate-700">{req.duration} j</td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === LeaveStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' :
-                          req.status === LeaveStatus.REJECTED ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
-                          }`}>
-                          {req.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Reports View */}
-      {view === 'reports' && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
-          <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Gestion des Reports de Solde</h3>
-          <p className="text-slate-500 mb-8 max-w-3xl">
-            Le tableau ci-dessous présente une estimation des soldes à reporter.
-            Calcul basé sur : (Années d'ancienneté × 18 jours) - (Jours consommés).
-            Cette vue permet de valider les reports annuels.
-          </p>
+      {
+        view === 'reports' && (
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Gestion des Reports de Solde</h3>
+            <p className="text-slate-500 mb-8 max-w-3xl">
+              Le tableau ci-dessous présente une estimation des soldes à reporter.
+              Calcul basé sur : (Années d'ancienneté × 18 jours) - (Jours consommés).
+              Cette vue permet de valider les reports annuels.
+            </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {dbUsers.map(u => {
-              const stats = getUserLeaveStats(u.id, u.hire_date, u.balance_adjustment);
-              return (
-                <div key={u.id} className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:border-indigo-200 transition-all group">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h4 className="font-bold text-slate-900">{u.full_name}</h4>
-                      <p className="text-xs text-slate-500">{u.department}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {dbUsers.map(u => {
+                // Recalculate stats using the detailed analysis
+                const consumed = allRequests.filter(r => r.user_id === u.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0);
+                const stats = calculateBalanceAnalysis(u.hire_date, consumed, u.balance_adjustment);
+
+                return (
+                  <div key={u.id} className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:border-indigo-200 transition-all group">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h4 className="font-bold text-slate-900">{u.full_name}</h4>
+                        <p className="text-xs text-slate-500">{u.department}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${stats.carryOver > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        {stats.carryOver > 0 ? 'REPORT N-1' : 'A JOUR'}
+                      </span>
                     </div>
-                    <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${stats.remaining > 18 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {stats.remaining > 18 ? 'ACTION REQUISE' : 'OK'}
-                    </span>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Droit Annuel</span>
+                        <span className="font-bold">{stats.currentAnnualRate} j</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Total Acquis</span>
+                        <span className="font-bold">{stats.totalAccrued.toFixed(1)} j</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Consommés</span>
+                        <span className="font-bold text-rose-600">-{stats.consumed.toFixed(1)} j</span>
+                      </div>
+                      <div className="pt-3 border-t border-slate-200 flex justify-between items-center bg-white p-2 rounded-xl mt-2">
+                        <span className="text-xs font-black text-indigo-900 uppercase">Solde Dispo</span>
+                        <span className="text-xl font-black text-indigo-600">{stats.remaining.toFixed(1)} j</span>
+                      </div>
+                      {stats.carryOver > 0 && (
+                        <div className="flex justify-between items-center px-2">
+                          <span className="text-[10px] font-bold text-amber-700 uppercase">Dont Report</span>
+                          <span className="text-sm font-black text-amber-600">{stats.carryOver.toFixed(1)} j</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">Droits totaux</span>
-                      <span className="font-bold">{stats.totalAccrued.toFixed(1)} j</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">Consommés</span>
-                      <span className="font-bold text-rose-600">-{stats.consumed.toFixed(1)} j</span>
-                    </div>
-                    <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
-                      <span className="text-xs font-black text-indigo-900 uppercase">Solde Reportable</span>
-                      <span className="text-xl font-black text-indigo-600">{stats.remaining.toFixed(1)} j</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Logs View */}
-      {view === 'logs' && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in">
-          <div className="p-8 border-b border-slate-100">
-            <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Journaux d'Audit</h3>
-            <p className="text-slate-500 text-sm mt-2">Traçabilité complète des actions administratives.</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  <th className="px-6 py-4">Horodatage</th>
-                  <th className="px-6 py-4">Action</th>
-                  <th className="px-6 py-4">Auteur</th>
-                  <th className="px-6 py-4">Détails</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {logs.length > 0 ? logs.map((log: any) => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 font-mono text-xs text-slate-500">
-                      {new Date(log.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 font-black text-slate-800">{log.action}</td>
-                    <td className="px-6 py-4 text-slate-600">{log.profiles?.full_name || 'Système'}</td>
-                    <td className="px-6 py-4 text-xs font-mono text-slate-500 max-w-xs truncate">
-                      {JSON.stringify(log.details)}
-                    </td>
+      {
+        view === 'logs' && (
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in">
+            <div className="p-8 border-b border-slate-100">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Journaux d'Audit</h3>
+              <p className="text-slate-500 text-sm mt-2">Traçabilité complète des actions administratives.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <th className="px-6 py-4">Horodatage</th>
+                    <th className="px-6 py-4">Action</th>
+                    <th className="px-6 py-4">Auteur</th>
+                    <th className="px-6 py-4">Détails</th>
                   </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={4} className="p-8 text-center text-slate-400">Aucun log disponible (table manquante ?)</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {logs.length > 0 ? logs.map((log: any) => (
+                    <tr key={log.id} className="hover:bg-slate-50">
+                      <td className="px-6 py-4 font-mono text-xs text-slate-500">
+                        {new Date(log.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 font-black text-slate-800">{log.action}</td>
+                      <td className="px-6 py-4 text-slate-600">{log.profiles?.full_name || 'Système'}</td>
+                      <td className="px-6 py-4 text-xs font-mono text-slate-500 max-w-xs truncate">
+                        {JSON.stringify(log.details)}
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-slate-400">Aucun log disponible (table manquante ?)</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Settings View */}
-      {view === 'settings' && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
-          <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Paramètres Administratifs</h3>
-          <div className="space-y-6">
-            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200">
-              <h4 className="text-sm font-black text-slate-900 mb-4">Informations Système</h4>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Version</span>
-                  <span className="font-bold text-slate-900">mtpRH v4.0</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Base de données</span>
-                  <span className="font-bold text-slate-900">Supabase</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Conformité légale</span>
-                  <span className="font-bold text-emerald-600">Code du Travail Marocain</span>
+      {
+        view === 'settings' && (
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Paramètres Administratifs</h3>
+            <div className="space-y-6">
+              <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200">
+                <h4 className="text-sm font-black text-slate-900 mb-4">Informations Système</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Version</span>
+                    <span className="font-bold text-slate-900">mtpRH v5.0 (Admin)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Base de données</span>
+                    <span className="font-bold text-slate-900">Supabase</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Conformité légale</span>
+                    <span className="font-bold text-emerald-600">Code du Travail Marocain</span>
+                  </div>
                 </div>
               </div>
+            </div>
+
+            <div className="p-6 bg-indigo-50 rounded-2xl border border-indigo-200">
+              <h4 className="text-sm font-black text-indigo-900 mb-4">Export de Données</h4>
+              <p className="text-xs text-indigo-700 mb-4">Télécharger la liste complète des employés avec leurs soldes détaillés.</p>
+              <button
+                onClick={() => {
+                  try {
+                    const headers = ['Nom', 'Email', 'Departement', 'Date Embauche', 'Acquis Total', 'Consomme', 'Restant', 'Droit Annuel', 'Dont Report', 'Ajustement Manuel', 'Statut'];
+                    const rows = dbUsers.map(u => {
+                      const consumed = allRequests.filter(r => r.user_id === u.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0);
+                      const s = calculateBalanceAnalysis(u.hire_date, consumed, u.balance_adjustment);
+                      return [
+                        `"${u.full_name}"`,
+                        u.email,
+                        u.department,
+                        u.hire_date,
+                        s.totalAccrued.toFixed(2),
+                        s.consumed.toFixed(2),
+                        s.remaining.toFixed(2),
+                        s.currentAnnualRate,
+                        s.carryOver.toFixed(2),
+                        u.balance_adjustment || 0,
+                        u.is_active === false ? 'Archive' : 'Actif'
+                      ].join(',');
+                    });
+
+                    // Add BOM for Excel UTF-8 compatibility
+                    const csvContent = "\uFEFF" + headers.join(',') + "\n" + rows.join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    if (link.download !== undefined) {
+                      const url = URL.createObjectURL(blob);
+                      link.setAttribute("href", url);
+                      link.setAttribute("download", `mtp_rh_export_${new Date().toISOString().split('T')[0]}.csv`);
+                      link.style.visibility = 'hidden';
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }
+
+                    if (onNotification) onNotification('Export CSV généré avec succès');
+                  } catch (e: any) {
+                    if (onNotification) onNotification(`Erreur d'export: ${e.message}`);
+                  }
+                }}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-indigo-700 transition-all flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Exporter en CSV
+              </button>
             </div>
             <div className="p-6 bg-amber-50 rounded-2xl border border-amber-200">
               <h4 className="text-sm font-black text-amber-900 mb-2">⚠️ Actions Administratives</h4>
@@ -627,207 +745,302 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
-      {view === 'users' && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in relative">
-          {loading && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center"><div className="w-10 h-10 border-4 border-indigo-900 border-t-transparent rounded-full animate-spin"></div></div>}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  <th className="px-10 py-7">Talent</th>
-                  <th className="px-10 py-7">Dpt</th>
-                  <th className="px-10 py-7">Statut</th>
-                  <th className="px-10 py-7">Embauche</th>
-                  <th className="px-10 py-7 text-center">Acquis</th>
-                  <th className="px-10 py-7 text-center">Restant</th>
-                  <th className="px-10 py-7 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {dbUsers.map(u => {
-                  const s = getUserLeaveStats(u.id, u.hire_date, u.balance_adjustment);
-                  const isArchived = u.is_active === false;
-                  return (
-                    <tr key={u.id} className={`hover:bg-indigo-50/20 transition-all group ${isArchived ? 'opacity-50 grayscale' : ''}`}>
-                      <td className="px-10 py-6">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-indigo-900 text-white rounded-xl flex items-center justify-center font-black text-xs">{u.full_name?.charAt(0) || '?'}</div>
-                          <div><p className="font-bold text-slate-900 tracking-tight">{u.full_name}</p><p className="text-[10px] text-slate-400">{u.email}</p></div>
-                        </div>
-                      </td>
-                      <td className="px-10 py-6 font-bold text-indigo-600">{u.department}</td>
-                      <td className="px-10 py-6">
-                        <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase ${isArchived ? 'bg-slate-200 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {isArchived ? 'Archivé' : 'Actif'}
-                        </span>
-                      </td>
-                      <td className="px-10 py-6 font-medium text-slate-500">{new Date(u.hire_date).toLocaleDateString('fr-FR')}</td>
-                      <td className="px-10 py-6 text-center font-bold text-slate-600">{s.totalAccrued.toFixed(1)} j</td>
-                      <td className="px-10 py-6 text-center"><span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg font-black">{s.remaining.toFixed(1)} j</span></td>
-                      <td className="px-10 py-6 text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => setEditingUser(u)} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">Gérer</button>
-                          <button onClick={() => handleDeleteUser(u.id, u.full_name)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {
+        view === 'users' && (
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in relative">
+            {loading && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center"><div className="w-10 h-10 border-4 border-indigo-900 border-t-transparent rounded-full animate-spin"></div></div>}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <th className="px-10 py-7">Talent</th>
+                    <th className="px-10 py-7">Dpt</th>
+                    <th className="px-10 py-7">Statut</th>
+                    <th className="px-10 py-7">Embauche</th>
+                    <th className="px-10 py-7 text-center">Acquis</th>
+                    <th className="px-10 py-7 text-center">Restant</th>
+                    <th className="px-10 py-7 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {dbUsers.map(u => {
+                    const s = getUserLeaveStats(u.id, u.hire_date, u.balance_adjustment);
+                    const isArchived = u.is_active === false;
+                    return (
+                      <tr key={u.id} className={`hover:bg-indigo-50/20 transition-all group ${isArchived ? 'opacity-50 grayscale' : ''}`}>
+                        <td className="px-10 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 bg-indigo-900 text-white rounded-xl flex items-center justify-center font-black text-xs">{u.full_name?.charAt(0) || '?'}</div>
+                            <div><p className="font-bold text-slate-900 tracking-tight">{u.full_name}</p><p className="text-[10px] text-slate-400">{u.email}</p></div>
+                          </div>
+                        </td>
+                        <td className="px-10 py-6 font-bold text-indigo-600">{u.department}</td>
+                        <td className="px-10 py-6">
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase ${isArchived ? 'bg-slate-200 text-slate-500' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {isArchived ? 'Archivé' : 'Actif'}
+                          </span>
+                        </td>
+                        <td className="px-10 py-6 font-medium text-slate-500">{new Date(u.hire_date).toLocaleDateString('fr-FR')}</td>
+                        <td className="px-10 py-6 text-center font-bold text-slate-600">{s.totalAccrued.toFixed(1)} j</td>
+                        <td className="px-10 py-6 text-center"><span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg font-black">{s.remaining.toFixed(1)} j</span></td>
+                        <td className="px-10 py-6 text-right">
+                          <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => {
+                              setHistoryFilter({ employee: u.full_name, status: 'ALL', period: 'ALL' });
+                              setView('history');
+                            }} className="p-2 text-slate-400 hover:bg-slate-50 rounded-xl transition-all" title="Voir historique">
+                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </button>
+                            <button onClick={() => setEditingUser(u)} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">Gérer</button>
+                            <button onClick={() => handleDeleteUser(u.id, u.full_name)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Editing Modal */}
-      {editingUser && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-4xl rounded-[4rem] p-12 shadow-2xl animate-in max-h-[90vh] overflow-y-auto scrollbar-hide">
-            <div className="flex justify-between items-center mb-10 border-b border-slate-100 pb-8">
-              <div className="flex items-center gap-6"><div className="w-20 h-20 bg-indigo-900 text-white rounded-[2rem] flex items-center justify-center text-2xl font-black">{editingUser.full_name?.charAt(0) || '?'}</div><div><h3 className="text-3xl font-black text-slate-900 tracking-tighter">{editingUser.full_name}</h3><p className="text-slate-400 font-medium italic">Audit de solde & Paramètres</p></div></div>
-              <button onClick={() => setEditingUser(null)} className="p-4 bg-slate-50 rounded-full text-slate-400 hover:text-slate-900 transition-all"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg></button>
-            </div>
-            <form onSubmit={handleUpdateUser} className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              <div className="space-y-6">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Données Identité</h4>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Nom Complet</label>
-                    <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.full_name} onChange={e => setEditingUser({ ...editingUser, full_name: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Département</label>
-                    <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.department} onChange={e => setEditingUser({ ...editingUser, department: e.target.value })}>
-                      {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Email</label>
-                    <input type="email" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.email} onChange={e => setEditingUser({ ...editingUser, email: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Rôle</label>
-                    <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.role} onChange={e => setEditingUser({ ...editingUser, role: e.target.value as UserRole })}>
-                      <option value={UserRole.EMPLOYEE}>Employé</option>
-                      <option value={UserRole.MANAGER}>Manager</option>
-                      <option value={UserRole.HR}>RH</option>
-                      <option value={UserRole.ADMIN}>Administrateur</option>
-                    </select>
-                  </div>
+      {
+        editingUser && (
+          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-4xl rounded-[4rem] p-12 shadow-2xl animate-in max-h-[90vh] overflow-y-auto scrollbar-hide">
+              <div className="flex justify-between items-center mb-10 border-b border-slate-100 pb-8">
+                <div className="flex items-center gap-6"><div className="w-20 h-20 bg-indigo-900 text-white rounded-[2rem] flex items-center justify-center text-2xl font-black">{editingUser.full_name?.charAt(0) || '?'}</div><div><h3 className="text-3xl font-black text-slate-900 tracking-tighter">{editingUser.full_name}</h3><p className="text-slate-400 font-medium italic">Audit de solde & Paramètres</p></div></div>
+                <button onClick={() => setEditingUser(null)} className="p-4 bg-slate-50 rounded-full text-slate-400 hover:text-slate-900 transition-all"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg></button>
+              </div>
+              <form onSubmit={handleUpdateUser} className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="space-y-6">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Données Identité</h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Nom Complet</label>
+                      <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.full_name} onChange={e => setEditingUser({ ...editingUser, full_name: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Département</label>
+                      <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.department} onChange={e => setEditingUser({ ...editingUser, department: e.target.value })}>
+                        {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Email</label>
+                      <input type="email" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.email} onChange={e => setEditingUser({ ...editingUser, email: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Rôle</label>
+                      <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.role} onChange={e => setEditingUser({ ...editingUser, role: e.target.value as UserRole })}>
+                        <option value={UserRole.EMPLOYEE}>Employé</option>
+                        <option value={UserRole.MANAGER}>Manager</option>
+                        <option value={UserRole.HR}>RH</option>
+                        <option value={UserRole.ADMIN}>Administrateur</option>
+                      </select>
+                    </div>
 
-                  <div className="flex items-center gap-3 bg-slate-100 p-4 rounded-xl">
-                    <input
-                      type="checkbox"
-                      className="w-5 h-5 accent-indigo-600"
-                      checked={editingUser.is_active !== false}
-                      onChange={e => setEditingUser({ ...editingUser, is_active: e.target.checked })}
-                    />
-                    <span className="text-sm font-bold text-slate-700">Compte Actif (Décocher pour archiver)</span>
+                    <div className="flex items-center gap-3 bg-slate-100 p-4 rounded-xl">
+                      <input
+                        type="checkbox"
+                        className="w-5 h-5 accent-indigo-600"
+                        checked={editingUser.is_active !== false}
+                        onChange={e => setEditingUser({ ...editingUser, is_active: e.target.checked })}
+                      />
+                      <span className="text-sm font-bold text-slate-700">Compte Actif (Décocher pour archiver)</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="space-y-6">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Contrat & Solde</h4>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
-                    <input type="date" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.hire_date} onChange={e => setEditingUser({ ...editingUser, hire_date: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Ajustement Solde (+/- jours)</label>
-                    <input type="number" step="0.5" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.balance_adjustment || 0} onChange={e => setEditingUser({ ...editingUser, balance_adjustment: e.target.value })} />
-                    <p className="text-[10px] text-slate-400 mt-1 px-1">Ajoute ou retire des jours au solde calculé automatiquement.</p>
-                  </div>
-                  <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 mt-4">
-                    <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-indigo-900">Congés Acquis (Auto)</span><span className="text-lg font-black text-indigo-600">{calculateMoroccanAccruedDays(editingUser.hire_date).toFixed(1)} j</span></div>
-                    {Number(editingUser.balance_adjustment) !== 0 && (
-                      <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-amber-900">Ajustement Manuel</span><span className="text-lg font-black text-amber-600">{Number(editingUser.balance_adjustment) > 0 ? '+' : ''}{Number(editingUser.balance_adjustment).toFixed(1)} j</span></div>
-                    )}
-                    <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-rose-900">Consommé</span><span className="text-lg font-black text-rose-600">-{allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)} j</span></div>
-                    <div className="flex justify-between items-center pt-4 border-t border-indigo-200"><span className="text-xs font-bold text-emerald-900">Solde Restant</span><span className="text-lg font-black text-emerald-600">{Math.max(0, calculateMoroccanAccruedDays(editingUser.hire_date) + (Number(editingUser.balance_adjustment) || 0) - allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)).toFixed(1)} j</span></div>
+                <div className="space-y-6">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Contrat & Solde</h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
+                      <input type="date" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.hire_date} onChange={e => setEditingUser({ ...editingUser, hire_date: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Ajustement Solde (+/- jours)</label>
+                      <input type="number" step="0.5" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.balance_adjustment || 0} onChange={e => setEditingUser({ ...editingUser, balance_adjustment: e.target.value })} />
+                      <p className="text-[10px] text-slate-400 mt-1 px-1">Ajoute ou retire des jours au solde calculé automatiquement.</p>
+                    </div>
+                    <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 mt-4">
+                      <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-indigo-900">Congés Acquis (Auto)</span><span className="text-lg font-black text-indigo-600">{calculateMoroccanAccruedDays(editingUser.hire_date).toFixed(1)} j</span></div>
+                      {Number(editingUser.balance_adjustment) !== 0 && (
+                        <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-amber-900">Ajustement Manuel</span><span className="text-lg font-black text-amber-600">{Number(editingUser.balance_adjustment) > 0 ? '+' : ''}{Number(editingUser.balance_adjustment).toFixed(1)} j</span></div>
+                      )}
+                      <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-rose-900">Consommé</span><span className="text-lg font-black text-rose-600">-{allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)} j</span></div>
+                      <div className="flex justify-between items-center pt-4 border-t border-indigo-200"><span className="text-xs font-bold text-emerald-900">Solde Restant</span><span className="text-lg font-black text-emerald-600">{Math.max(0, calculateMoroccanAccruedDays(editingUser.hire_date) + (Number(editingUser.balance_adjustment) || 0) - allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)).toFixed(1)} j</span></div>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <button type="submit" className="col-span-full bg-indigo-900 text-white py-6 rounded-[2rem] font-black text-sm shadow-xl hover:bg-black transition-all">Enregistrer les modifications</button>
-            </form>
+
+                {/* Preferences & Security */}
+                <div className="mt-8 pt-8 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-10">
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 mb-4">Sécurité</h4>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!editingUser.email) return;
+                        if (window.confirm(`Envoyer un email de réinitialisation à ${editingUser.email} ?`)) {
+                          const { error } = await supabase.auth.resetPasswordForEmail(editingUser.email);
+                          if (error) {
+                            if (onNotification) onNotification(`Erreur: ${error.message}`);
+                          } else {
+                            if (onNotification) onNotification(`Email envoyé à ${editingUser.email}`);
+                            await auditLog('RESET_PASSWORD_TRIGGER', { target_email: editingUser.email });
+                          }
+                        }
+                      }}
+                      className="w-full py-4 border-2 border-slate-200 rounded-2xl font-bold text-slate-600 hover:border-slate-900 hover:text-slate-900 transition-all text-sm flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                      Réinitialiser mot de passe
+                    </button>
+                  </div>
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 mb-4">Préférences Système</h4>
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-indigo-600"
+                          checked={editingUser.preferences?.email_notifications !== false} // True by default
+                          onChange={e => setEditingUser({ ...editingUser, preferences: { ...editingUser.preferences, email_notifications: e.target.checked } })}
+                        />
+                        <span className="text-xs font-bold text-slate-700">Notifications Email</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 flex justify-end gap-4 col-span-full">
+                  <button type="button" onClick={() => setEditingUser(null)} className="px-6 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all">Annuler</button>
+                  <button type="submit" className="bg-indigo-900 text-white px-10 py-4 rounded-[2rem] font-black text-sm shadow-xl hover:bg-black transition-all">Enregistrer les modifications</button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
+
+      {/* Edit Request Modal */}
+      {
+        editRequestModal && (
+          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[90] flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Modifier la demande</h3>
+              <form onSubmit={handleEditRequest} className="space-y-6">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Type de congé</label>
+                  <select
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
+                    value={editRequestModal.type}
+                    onChange={e => setEditRequestModal({ ...editRequestModal, type: e.target.value })}
+                  >
+                    {Object.values(LeaveType).map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Début</label>
+                    <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={editRequestModal.start_date} onChange={e => setEditRequestModal({ ...editRequestModal, start_date: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Fin</label>
+                    <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={editRequestModal.end_date} onChange={e => setEditRequestModal({ ...editRequestModal, end_date: e.target.value })} />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-4">
+                  <button type="button" onClick={() => setEditRequestModal(null)} className="px-6 py-3 text-slate-500 font-bold rounded-2xl hover:bg-slate-50">Annuler</button>
+                  <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 shadow-lg">Sauvegarder</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+      }
 
       {/* Decision Modal */}
-      {decisionModal && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 shadow-2xl animate-in">
-            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">
-              {decisionModal.action === LeaveStatus.APPROVED ? 'Approuver la demande' : 'Refuser la demande'}
-            </h3>
-            <div className="space-y-6">
-              <div>
-                <label className="text-sm font-black text-slate-700 block mb-2">Commentaire (optionnel)</label>
-                <textarea
-                  rows={4}
-                  value={managerComment}
-                  onChange={(e) => setManagerComment(e.target.value)}
-                  placeholder="Ajoutez un commentaire pour le collaborateur..."
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm focus:border-indigo-500 outline-none resize-none"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-4">
-                <button
-                  onClick={() => {
-                    setDecisionModal(null);
-                    setManagerComment('');
-                  }}
-                  className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={handleDecision}
-                  className={`px-8 py-3 rounded-2xl font-black text-sm transition-all ${decisionModal.action === LeaveStatus.APPROVED
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                    : 'bg-rose-600 text-white hover:bg-rose-700'
-                    }`}
-                >
-                  {decisionModal.action === LeaveStatus.APPROVED ? 'Confirmer l\'approbation' : 'Confirmer le refus'}
-                </button>
+      {
+        decisionModal && (
+          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 shadow-2xl animate-in">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">
+                {decisionModal.action === LeaveStatus.APPROVED ? 'Approuver la demande' : 'Refuser la demande'}
+              </h3>
+              <div className="space-y-6">
+                <div>
+                  <label className="text-sm font-black text-slate-700 block mb-2">Commentaire (optionnel)</label>
+                  <textarea
+                    rows={4}
+                    value={managerComment}
+                    onChange={(e) => setManagerComment(e.target.value)}
+                    placeholder="Ajoutez un commentaire pour le collaborateur..."
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm focus:border-indigo-500 outline-none resize-none"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-4">
+                  <button
+                    onClick={() => {
+                      setDecisionModal(null);
+                      setManagerComment('');
+                    }}
+                    className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={handleDecision}
+                    className={`px-8 py-3 rounded-2xl font-black text-sm transition-all ${decisionModal.action === LeaveStatus.APPROVED
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      : 'bg-rose-600 text-white hover:bg-rose-700'
+                      }`}
+                  >
+                    {decisionModal.action === LeaveStatus.APPROVED ? 'Confirmer l\'approbation' : 'Confirmer le refus'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Add User Modal */}
-      {isAdding && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-2xl rounded-[4rem] p-16 shadow-2xl animate-in">
-            <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Nouveau Talent</h3>
-            <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <input required className="col-span-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" placeholder="Nom Complet" value={newUser.full_name} onChange={e => setNewUser({ ...newUser, full_name: e.target.value })} />
-              <input type="email" required className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" placeholder="Email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
-              <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.department} onChange={e => setNewUser({ ...newUser, department: e.target.value })}>
-                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value as UserRole })}>
-                <option value={UserRole.EMPLOYEE}>Employé</option>
-                <option value={UserRole.MANAGER}>Manager</option>
-                <option value={UserRole.HR}>RH</option>
-                <option value={UserRole.ADMIN}>Administrateur</option>
-              </select>
-              <div className="col-span-full">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
-                <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.hire_date} onChange={e => setNewUser({ ...newUser, hire_date: e.target.value })} />
-              </div>
-              <button type="submit" className="col-span-full bg-indigo-900 text-white py-6 rounded-[2rem] font-black text-sm hover:bg-black transition-all">Intégrer dans MOUMEN RH</button>
-              <button type="button" onClick={() => setIsAdding(false)} className="col-span-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest">Fermer</button>
-            </form>
+      {
+        isAdding && (
+          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-2xl rounded-[4rem] p-16 shadow-2xl animate-in">
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Nouveau Talent</h3>
+              <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <input required className="col-span-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" placeholder="Nom Complet" value={newUser.full_name} onChange={e => setNewUser({ ...newUser, full_name: e.target.value })} />
+                <input type="email" required className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" placeholder="Email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
+                <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.department} onChange={e => setNewUser({ ...newUser, department: e.target.value })}>
+                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value as UserRole })}>
+                  <option value={UserRole.EMPLOYEE}>Employé</option>
+                  <option value={UserRole.MANAGER}>Manager</option>
+                  <option value={UserRole.HR}>RH</option>
+                  <option value={UserRole.ADMIN}>Administrateur</option>
+                </select>
+                <div className="col-span-full">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
+                  <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.hire_date} onChange={e => setNewUser({ ...newUser, hire_date: e.target.value })} />
+                </div>
+                <button type="submit" className="col-span-full bg-indigo-900 text-white py-6 rounded-[2rem] font-black text-sm hover:bg-black transition-all">Intégrer dans MOUMEN RH</button>
+                <button type="button" onClick={() => setIsAdding(false)} className="col-span-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest">Fermer</button>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 };
 

@@ -259,6 +259,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN';
 -- Mises à jour v5 (Administration Avancée)
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS balance_adjustment NUMERIC DEFAULT 0;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{"email_notifications": true, "app_notifications": true}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
