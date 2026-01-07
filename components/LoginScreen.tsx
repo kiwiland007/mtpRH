@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, UserRole } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface LoginScreenProps {
   onLogin: (user: User) => void;
@@ -11,26 +12,49 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     password: ''
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
-    // Simulation de connexion (remplacer par vraie logique d'authentification)
-    setTimeout(() => {
-      const mockUser: User = {
-        id: '00000000-0000-0000-0000-000000000001',
-        email: credentials.email || 'ahmed.mansouri@mtp.ma',
-        fullName: 'Ahmed Mansouri',
-        role: UserRole.ADMIN,
-        department: 'Direction Générale',
-        hireDate: '2020-03-10',
-        managerId: 'admin-root'
+    try {
+      // Pour une démo sans Auth Supabase complet (magic link/password), 
+      // on vérifie seulement si le profil existe
+      const { data, error: dbError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', credentials.email.trim())
+        .single();
+
+      if (dbError || !data) {
+        throw new Error("Utilisateur non trouvé ou accès refusé.");
+      }
+
+      if (data.is_active === false) {
+        throw new Error("Ce compte a été archivé. Contactez l'administrateur.");
+      }
+
+      const user: User = {
+        id: data.id,
+        email: data.email,
+        fullName: data.full_name,
+        role: data.role as UserRole,
+        department: data.department || '',
+        hireDate: data.hire_date,
+        managerId: data.manager_id,
+        is_active: data.is_active,
+        balance_adjustment: data.balance_adjustment,
+        preferences: data.preferences
       };
 
-      onLogin(mockUser);
+      onLogin(user);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -49,6 +73,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         </div>
 
         <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-200">
+          {error && (
+            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl text-rose-600 text-xs font-bold animate-in">
+              {error}
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="text-sm font-black text-slate-700 block mb-2">
@@ -90,13 +119,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             </button>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <div className="text-center text-xs text-slate-500">
-              <p className="font-bold mb-2">Démo - Utilisateur de test :</p>
-              <p>Email: demo@mtp.ma</p>
-              <p>Mot de passe: demo123</p>
-            </div>
-          </div>
+
         </div>
 
         <div className="text-center">

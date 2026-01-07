@@ -11,19 +11,9 @@ import NotificationCenter from './components/NotificationCenter';
 import LoginScreen from './components/LoginScreen';
 import { supabase } from './lib/supabase';
 
-const MOCK_USER: User = {
-  id: '00000000-0000-0000-0000-000000000001',
-  email: 'ahmed.mansouri@mtp.ma',
-  fullName: 'Ahmed Mansouri',
-  role: UserRole.ADMIN,
-  department: 'Direction Générale',
-  hireDate: '2020-03-10',
-  managerId: 'admin-root'
-};
-
 const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(MOCK_USER);
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'request' | 'calendar' | 'admin'>('dashboard');
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [notifications, setNotifications] = useState<string[]>([]);
