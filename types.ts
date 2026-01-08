@@ -49,6 +49,10 @@ export interface LeaveRequest {
   managerComment?: string;
   createdAt: string;
   duration: number; // calculated days
+
+  // Propriétés additionnelles pour l'historique
+  employeeName?: string;
+  employeeDepartment?: string;
 }
 
 export interface LeaveBalance {

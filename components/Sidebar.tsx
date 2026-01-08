@@ -15,6 +15,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, userRole, onO
     { id: 'dashboard', label: 'Tableau de bord', icon: ICONS.Dashboard },
     { id: 'request', label: 'Ma demande', icon: ICONS.Calendar },
     { id: 'calendar', label: 'Planning Équipe', icon: ICONS.Calendar },
+    { id: 'history', label: 'Historique', icon: ICONS.History },
   ];
 
   if (userRole === UserRole.ADMIN || userRole === UserRole.HR || userRole === UserRole.MANAGER) {
@@ -58,8 +59,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, userRole, onO
             key={item.id}
             onClick={() => onTabChange(item.id)}
             className={`w-full flex items-center space-x-3 px-5 py-3.5 rounded-2xl transition-all duration-300 ${activeTab === item.id
-                ? 'bg-rose-600 text-white shadow-xl shadow-rose-900/40 translate-x-1'
-                : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              ? 'bg-rose-600 text-white shadow-xl shadow-rose-900/40 translate-x-1'
+              : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
               }`}
           >
             <item.icon className={`w-5 h-5 ${activeTab === item.id ? 'text-white' : 'text-slate-500'}`} />

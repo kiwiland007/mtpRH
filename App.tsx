@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import TeamCalendar from './components/TeamCalendar';
 import AdminPanel from './components/AdminPanel';
 import CarryoverManagement from './components/CarryoverManagement';
+import LeaveHistory from './components/LeaveHistory';
 import Header from './components/Header';
 import NotificationCenter from './components/NotificationCenter';
 import LoginScreen from './components/LoginScreen';
@@ -15,7 +16,7 @@ import { supabase } from './lib/supabase';
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'request' | 'calendar' | 'admin' | 'carryovers'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'request' | 'calendar' | 'admin' | 'carryovers' | 'history'>('dashboard');
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [notifications, setNotifications] = useState<string[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -343,6 +344,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN', is_active = true;`;
                 {activeTab === 'calendar' && <TeamCalendar requests={requests} />}
                 {activeTab === 'admin' && <AdminPanel user={currentUser} onUpdate={() => fetchRequests()} onNotification={addNotification} />}
                 {activeTab === 'carryovers' && <CarryoverManagement currentUser={currentUser} supabaseClient={supabase} />}
+                {activeTab === 'history' && <LeaveHistory currentUser={currentUser} supabaseClient={supabase} />}
               </div>
             )}
           </div>
