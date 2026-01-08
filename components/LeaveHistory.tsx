@@ -68,7 +68,7 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                 .from('leave_requests')
                 .select(`
           *,
-          profiles!leave_requests_user_id_fkey (
+          profiles:user_id (
             id,
             full_name,
             email,
