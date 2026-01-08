@@ -66,16 +66,7 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
         try {
             let query = supabaseClient
                 .from('leave_requests')
-                .select(`
-          *,
-          profiles:user_id (
-            id,
-            full_name,
-            email,
-            department,
-            hire_date
-          )
-        `)
+                .select('*')
                 .order('created_at', { ascending: false });
 
             // Filtre par employé (si non-admin)
@@ -106,20 +97,27 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
 
             if (error) throw error;
 
-            let mappedData: LeaveRequest[] = (data || []).map((item: any) => ({
-                id: item.id,
-                userId: item.user_id,
-                type: item.type as LeaveType,
-                startDate: item.start_date,
-                endDate: item.end_date,
-                status: item.status as LeaveStatus,
-                duration: Number(item.duration) || 0,
-                comment: item.comment || '',
-                managerComment: item.manager_comment || '',
-                createdAt: item.created_at,
-                employeeName: item.profiles?.full_name || 'N/A',
-                employeeDepartment: item.profiles?.department || 'N/A'
-            }));
+            // Mapping manuel des informations employé (évite les erreurs de jointure schema cache)
+            let mappedData: LeaveRequest[] = (data || []).map((item: any) => {
+                // Trouver l'employé dans la liste chargée ou utiliser l'utilisateur actuel
+                const employee = employees.find(e => e.id === item.user_id) ||
+                    (item.user_id === currentUser.id ? currentUser : null);
+
+                return {
+                    id: item.id,
+                    userId: item.user_id,
+                    type: item.type as LeaveType,
+                    startDate: item.start_date,
+                    endDate: item.end_date,
+                    status: item.status as LeaveStatus,
+                    duration: Number(item.duration) || 0,
+                    comment: item.comment || '',
+                    managerComment: item.manager_comment || '',
+                    createdAt: item.created_at,
+                    employeeName: employee ? (employee.full_name || employee.fullName) : 'N/A',
+                    employeeDepartment: employee ? (employee.department) : 'N/A'
+                };
+            });
 
             // Filtre par recherche
             if (filters.searchTerm) {
