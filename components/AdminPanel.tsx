@@ -12,7 +12,7 @@ interface AdminPanelProps {
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification }) => {
-  const [view, setView] = useState<'overview' | 'requests' | 'users' | 'settings' | 'history' | 'reports' | 'logs'>('overview');
+  const [view, setView] = useState<'overview' | 'requests' | 'users' | 'settings' | 'history' | 'reports' | 'logs' | 'integrity'>('overview');
   const [allRequests, setAllRequests] = useState<any[]>([]);
   const [dbUsers, setDbUsers] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
@@ -27,6 +27,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
   const [isCreatingRequest, setIsCreatingRequest] = useState(false);
   const [newAdminRequest, setNewAdminRequest] = useState({ userId: '', type: LeaveType.ANNUAL, startDate: '', endDate: '', comment: '', duration: 0, isHalfDay: false });
   const [managerComment, setManagerComment] = useState('');
+  const [generatedPassword, setGeneratedPassword] = useState('');
 
   const departments = ["Direction Générale", "Direction", "Sinistre", "Production", "Opérations", "Finance", "RH"];
 
@@ -113,9 +114,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
     }
   };
 
+  const generatePassword = () => {
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let retVal = "";
+    for (let i = 0, n = charset.length; i < 12; ++i) {
+      retVal += charset.charAt(Math.floor(Math.random() * n));
+    }
+    setGeneratedPassword(retVal);
+  };
+
   const openCreateRequestForUser = (userId: string) => {
     setNewAdminRequest({ ...newAdminRequest, userId });
     setIsCreatingRequest(true);
+    setGeneratedPassword('');
   };
 
   const getUserLeaveStats = (userId: string, hireDate: string, adjustment: number = 0) => {
@@ -419,6 +430,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
           <button onClick={() => setView('users')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'users' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Effectifs</button>
           <button onClick={() => setView('logs')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'logs' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Logs</button>
           <button onClick={() => setView('settings')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'settings' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Paramètres</button>
+          <button onClick={() => setView('integrity')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'integrity' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Intégrité</button>
         </div>
 
         {view === 'users' && (
@@ -904,6 +916,112 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
         )
       }
 
+      {/* Integrity Check View */}
+      {view === 'integrity' && (
+        <div className="space-y-8 animate-in">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Diagnostic d'Intégrité des Données</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Overlapping Requests */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-black text-rose-600 uppercase tracking-widest flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  Chevauchements de Demandes (Doublons)
+                </h4>
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 max-h-64 overflow-y-auto">
+                  {(() => {
+                    const overlaps: any[] = [];
+                    allRequests.forEach(r1 => {
+                      allRequests.forEach(r2 => {
+                        if (r1.id !== r2.id && r1.user_id === r2.user_id && r1.status !== 'REJECTED' && r2.status !== 'REJECTED') {
+                          const start1 = new Date(r1.start_date);
+                          const end1 = new Date(r1.end_date);
+                          const start2 = new Date(r2.start_date);
+                          const end2 = new Date(r2.end_date);
+                          if (start1 <= end2 && start2 <= end1) {
+                            if (!overlaps.find(o => (o.r1 === r2.id && o.r2 === r1.id))) {
+                              overlaps.push({ r1: r1.id, r2: r2.id, name: r1.profiles?.full_name, date1: r1.start_date, date2: r2.start_date });
+                            }
+                          }
+                        }
+                      });
+                    });
+                    if (overlaps.length === 0) return <p className="text-xs text-slate-400 italic">Aucun chevauchement détecté ✅</p>;
+                    return overlaps.map((o, i) => (
+                      <div key={i} className="mb-2 p-3 bg-white rounded-xl border border-rose-100 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-slate-900">{o.name}</p>
+                          <p className="text-slate-500">Conflit entre demande {o.date1} et {o.date2}</p>
+                        </div>
+                        <button onClick={() => setView('requests')} className="text-rose-600 font-bold hover:underline">Voir</button>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+
+              {/* Inconsistent Durations */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-black text-amber-600 uppercase tracking-widest flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                  Erreurs de Calcul de Durée
+                </h4>
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 max-h-64 overflow-y-auto">
+                  {(() => {
+                    const errors = allRequests.filter(r => {
+                      const expected = calculateBusinessDays(r.start_date, r.end_date);
+                      return Math.abs(Number(r.duration) - expected) > 0.01;
+                    });
+                    if (errors.length === 0) return <p className="text-xs text-slate-400 italic">Toutes les durées sont cohérentes ✅</p>;
+                    return errors.map((r, i) => (
+                      <div key={i} className="mb-2 p-3 bg-white rounded-xl border border-amber-100 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-slate-900">{r.profiles?.full_name}</p>
+                          <p className="text-slate-500">Enregistré: {r.duration}j | Attendu: {calculateBusinessDays(r.start_date, r.end_date)}j</p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const expected = calculateBusinessDays(r.start_date, r.end_date);
+                            const { error } = await supabase.from('leave_requests').update({ duration: expected }).eq('id', r.id);
+                            if (!error) { fetchData(); if (onNotification) onNotification("Durée corrigée"); }
+                          }}
+                          className="bg-amber-100 text-amber-700 px-3 py-1 rounded-lg font-bold hover:bg-amber-200"
+                        >
+                          Corriger
+                        </button>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-12 p-6 bg-indigo-50 rounded-3xl border border-indigo-100">
+              <h4 className="text-xs font-black text-indigo-900 uppercase tracking-widest mb-4">Actions de Nettoyage Automatique</h4>
+              <div className="flex flex-wrap gap-4">
+                <button
+                  onClick={async () => {
+                    if (window.confirm("Voulez-vous supprimer toutes les demandes en double (chevauchements) ? L'action est irréversible.")) {
+                      // Logic to delete duplicates would go here
+                      if (onNotification) onNotification("Fonctionnalité de nettoyage groupée en cours de déploiement...");
+                    }
+                  }}
+                  className="bg-indigo-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all"
+                >
+                  Supprimer les Demandes en Double
+                </button>
+                <button
+                  className="bg-white text-indigo-900 border-2 border-indigo-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all"
+                >
+                  Récupérer les Demandes Orphelines
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Editing Modal */}
       {
         editingUser && (
@@ -1013,6 +1131,36 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
                       Réinitialiser mot de passe
                     </button>
+                    <div className="mt-4 p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mot de passe temporaire</span>
+                        <button
+                          type="button"
+                          onClick={generatePassword}
+                          className="text-[10px] font-black text-indigo-600 uppercase hover:underline"
+                        >
+                          Générer
+                        </button>
+                      </div>
+                      {generatedPassword ? (
+                        <div className="flex items-center justify-between">
+                          <code className="bg-white px-3 py-2 rounded-lg border border-slate-200 font-mono text-sm font-bold text-indigo-600">{generatedPassword}</code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(generatedPassword);
+                              if (onNotification) onNotification("Copié !");
+                            }}
+                            className="p-2 text-slate-400 hover:text-indigo-600 transition-all"
+                            title="Copier"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 italic">Générez un mot de passe sécurisé à communiquer au collaborateur.</p>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 mb-4">Préférences Système</h4>

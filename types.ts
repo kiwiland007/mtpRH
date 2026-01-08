@@ -92,6 +92,7 @@ export interface AnnualCarryover {
   // Calculs de solde (en jours ouvrables)
   accruedDays: number;        // Jours acquis dans l'année
   usedDays: number;           // Jours consommés
+  usedDaysAdjustment?: number; // Ajustement manuel du consommé
   remainingDays: number;      // Solde restant
 
   // Reports
@@ -198,6 +199,8 @@ export interface EmployeeBalanceView {
 
   accruedDays: number;
   usedDays: number;
+  usedDaysAdjustment?: number;
+  totalUsedDays?: number;
   remainingDays: number;
   previousCarryover: number;
   nextCarryover: number;
@@ -222,6 +225,7 @@ export interface CarryoverCalculation {
   yearsOfService?: number;
   annualRate?: number;
   seniorityBonus?: number;
+  usedAdjustment?: number;
 }
 
 // Filtres pour le tableau de bord admin

@@ -89,6 +89,7 @@ export const calculateYearlyBalance = (
     year: number,
     usedDays: number,
     previousCarryover: number = 0,
+    usedDaysAdjustment: number = 0,
     rule: CarryoverRule = DEFAULT_CARRYOVER_RULE
 ): CarryoverCalculation => {
     // Date de référence : 31 décembre de l'année concernée
@@ -107,8 +108,11 @@ export const calculateYearlyBalance = (
     // Total acquis = droit annuel + report N-1
     const totalAvailable = annualRate + previousCarryover;
 
+    // Total consommé réel (calculé + ajustement)
+    const totalUsed = usedDays + usedDaysAdjustment;
+
     // Solde restant
-    const remaining = Math.max(0, totalAvailable - usedDays);
+    const remaining = Math.max(0, totalAvailable - totalUsed);
 
     // Limite de report vers N+1
     const maxCarry = calculateMaxCarryover(annualRate, rule);
@@ -129,7 +133,8 @@ export const calculateYearlyBalance = (
         forfeited,
         yearsOfService: Math.round(yearsOfService * 100) / 100,
         annualRate,
-        seniorityBonus
+        seniorityBonus,
+        usedAdjustment: usedDaysAdjustment
     };
 };
 
@@ -141,6 +146,7 @@ export const calculateCurrentBalance = (
     usedDays: number,
     previousCarryover: number = 0,
     balanceAdjustment: number = 0,
+    usedDaysAdjustment: number = 0,
     rule: CarryoverRule = DEFAULT_CARRYOVER_RULE
 ): CarryoverCalculation => {
     const currentYear = new Date().getFullYear();
@@ -149,6 +155,7 @@ export const calculateCurrentBalance = (
         currentYear,
         usedDays,
         previousCarryover,
+        usedDaysAdjustment,
         rule
     );
 
@@ -192,7 +199,7 @@ export const calculateProrataAccrual = (
     const monthsWorked = diffMs / (1000 * 60 * 60 * 24 * 30.44); // Mois moyen
 
     // Calculer l'ancienneté à la fin de la période
-    const yearsOfService = calculateYearsOfService(hireDate, endDate.toISOString());
+    const yearsOfService = calculateYearsOfService(hireDate, endDate);
     const annualRate = calculateAnnualEntitlement(yearsOfService, rule);
 
     // Calcul au prorata : (taux annuel / 12) × nombre de mois
@@ -294,6 +301,7 @@ export const calculateMultiYearHistory = (
             year,
             used,
             previousCarry,
+            0, // usedDaysAdjustment
             rule
         );
 

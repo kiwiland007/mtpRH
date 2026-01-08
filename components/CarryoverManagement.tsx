@@ -32,6 +32,7 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
     });
     const [selectedCarryover, setSelectedCarryover] = useState<EmployeeBalanceView | null>(null);
     const [showValidationModal, setShowValidationModal] = useState(false);
+    const [showCorrectionModal, setShowCorrectionModal] = useState(false);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
     const [recalculating, setRecalculating] = useState(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -105,6 +106,8 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                 previousCarryover: item.previous_carryover,
                 nextCarryover: item.next_carryover,
                 forfeitedDays: item.forfeited_days,
+                usedDaysAdjustment: item.used_days_adjustment || 0,
+                totalUsedDays: (item.used_days || 0) + (item.used_days_adjustment || 0),
                 status: item.status,
                 validatedAt: item.validated_at,
                 validatedBy: item.validated_by
@@ -149,6 +152,16 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
 
             if (profileError) throw profileError;
 
+            // Récupérer l'ajustement existant pour cette année
+            const { data: currentCarryover } = await supabaseClient
+                .from('annual_carryovers')
+                .select('used_days_adjustment')
+                .eq('user_id', userId)
+                .eq('year', year)
+                .single();
+
+            const usedAdj = currentCarryover?.used_days_adjustment || 0;
+
             // Récupérer le report de l'année précédente
             const { data: previousCarryover } = await supabaseClient
                 .from('annual_carryovers')
@@ -177,6 +190,7 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                 year,
                 usedDays,
                 prevCarry,
+                usedAdj,
                 DEFAULT_CARRYOVER_RULE
             );
 
@@ -202,6 +216,7 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                     yearsOfService: calculation.yearsOfService,
                     annualRate: calculation.annualRate,
                     seniorityBonus: calculation.seniorityBonus,
+                    usedAdjustment: calculation.usedAdjustment,
                     calculatedAt: new Date().toISOString()
                 }
             };
@@ -261,6 +276,41 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
             loadCarryovers();
         } catch (error: any) {
             showNotification('error', 'Erreur lors de la validation: ' + error.message);
+        }
+    };
+
+    const handleCorrection = async (userId: string, year: number, adjustment: number, reason: string) => {
+        try {
+            // Mettre à jour l'ajustement
+            const { error: updateError } = await supabaseClient
+                .from('annual_carryovers')
+                .update({
+                    used_days_adjustment: adjustment,
+                    admin_notes: reason
+                })
+                .eq('user_id', userId)
+                .eq('year', year);
+
+            if (updateError) throw updateError;
+
+            // Recalculer pour mettre à jour les reports
+            await recalculateCarryover(userId, year);
+
+            // Audit
+            await supabaseClient
+                .from('carryover_audit')
+                .insert({
+                    action: 'ADJUST',
+                    performed_by: currentUser.id,
+                    reason: `Correction solde consommé: ${adjustment > 0 ? '+' : ''}${adjustment}j. Raison: ${reason}`,
+                    new_values: { used_days_adjustment: adjustment }
+                });
+
+            showNotification('success', 'Correction appliquée avec succès');
+            setShowCorrectionModal(false);
+            loadCarryovers();
+        } catch (error: any) {
+            showNotification('error', 'Erreur lors de la correction: ' + error.message);
         }
     };
 
@@ -504,7 +554,7 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
             {/* Notification */}
             {notification && (
                 <div className={`fixed top-8 right-8 z-50 p-6 rounded-2xl shadow-2xl animate-slide-in-right ${notification.type === 'success' ? 'bg-emerald-500' :
-                        notification.type === 'error' ? 'bg-rose-500' : 'bg-blue-500'
+                    notification.type === 'error' ? 'bg-rose-500' : 'bg-blue-500'
                     } text-white max-w-md`}>
                     <div className="flex items-start gap-4">
                         <div className="text-2xl">
@@ -629,11 +679,23 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                                                                     setSelectedCarryover(carryover);
                                                                     setShowValidationModal(true);
                                                                 }}
-                                                                className="p-2 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                                className="p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600"
                                                                 title="Valider"
                                                             >
-                                                                <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                </svg>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setSelectedCarryover(carryover);
+                                                                    setShowCorrectionModal(true);
+                                                                }}
+                                                                className="p-2 hover:bg-amber-50 rounded-lg transition-colors text-amber-600"
+                                                                title="Corriger"
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                                 </svg>
                                                             </button>
                                                         </>
@@ -791,6 +853,98 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                             >
                                 Fermer
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de correction */}
+            {showCorrectionModal && selectedCarryover && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-8">
+                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-2xl w-full overflow-hidden">
+                        <div className="bg-gradient-to-r from-amber-600 to-orange-600 p-8 text-white">
+                            <h2 className="text-2xl font-black">Correction du Solde Consommé</h2>
+                            <p className="text-amber-100 mt-1 font-medium">{selectedCarryover.fullName} - {selectedCarryover.year}</p>
+                        </div>
+                        <div className="p-8 space-y-6">
+                            <div className="p-6 bg-slate-50 rounded-2xl space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm font-bold text-slate-500">Consommé actuel (calculé)</span>
+                                    <span className="text-lg font-black text-slate-900">{selectedCarryover.usedDays}j</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm font-bold text-slate-500">Ajustement actuel</span>
+                                    <span className="text-lg font-black text-amber-600">{selectedCarryover.usedDaysAdjustment > 0 ? '+' : ''}{selectedCarryover.usedDaysAdjustment}j</span>
+                                </div>
+                                <div className="border-t border-slate-200 pt-4 flex justify-between items-center">
+                                    <span className="text-sm font-black text-slate-900 uppercase">Total Consommé</span>
+                                    <span className="text-2xl font-black text-indigo-600">{selectedCarryover.totalUsedDays}j</span>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Nouvel Ajustement (jours)</label>
+                                    <input
+                                        id="correction-adjustment"
+                                        type="number"
+                                        step="0.5"
+                                        defaultValue={selectedCarryover.usedDaysAdjustment}
+                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 px-5 text-sm font-bold focus:border-amber-500 outline-none transition-all"
+                                    />
+                                    <p className="text-[10px] text-slate-400 italic">Ex: -2 pour réduire le consommé de 2 jours</p>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Motif de la correction</label>
+                                    <select
+                                        id="correction-reason-select"
+                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 px-5 text-sm font-bold focus:border-amber-500 outline-none transition-all"
+                                        onChange={(e) => {
+                                            const other = document.getElementById('correction-reason-text') as HTMLTextAreaElement;
+                                            if (e.target.value === 'Autre') {
+                                                other.classList.remove('hidden');
+                                            } else {
+                                                other.classList.add('hidden');
+                                                other.value = e.target.value;
+                                            }
+                                        }}
+                                    >
+                                        <option value="Erreur de saisie">Erreur de saisie</option>
+                                        <option value="Régularisation exceptionnelle">Régularisation exceptionnelle</option>
+                                        <option value="Report non consommé">Report non consommé</option>
+                                        <option value="Autre">Autre...</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <textarea
+                                id="correction-reason-text"
+                                rows={2}
+                                placeholder="Précisez la raison..."
+                                className="hidden w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 px-5 text-sm font-medium focus:border-amber-500 outline-none transition-all resize-none"
+                            ></textarea>
+
+                            <div className="flex gap-4">
+                                <button
+                                    onClick={() => setShowCorrectionModal(false)}
+                                    className="flex-1 px-6 py-4 border-2 border-slate-200 text-slate-700 rounded-2xl font-bold hover:bg-slate-50 transition-all"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const adj = parseFloat((document.getElementById('correction-adjustment') as HTMLInputElement).value) || 0;
+                                        const reasonSelect = (document.getElementById('correction-reason-select') as HTMLSelectElement).value;
+                                        const reasonText = (document.getElementById('correction-reason-text') as HTMLTextAreaElement).value;
+                                        const finalReason = reasonSelect === 'Autre' ? reasonText : reasonSelect;
+
+                                        handleCorrection(selectedCarryover.userId, selectedCarryover.year, adj, finalReason);
+                                    }}
+                                    className="flex-1 px-6 py-4 bg-amber-600 text-white rounded-2xl font-bold shadow-xl shadow-amber-200 hover:bg-amber-700 transition-all"
+                                >
+                                    Enregistrer la Correction
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
