@@ -6,3 +6,4 @@ export { default as AddUserModal } from './AddUserModal';
 export { default as AdminCreateRequestModal } from './AdminCreateRequestModal';
 export { default as SummaryCards } from './SummaryCards';
 export { default as AnalyticsCharts } from './AnalyticsCharts';
+export { default as CarryoverMetrics } from './CarryoverMetrics';

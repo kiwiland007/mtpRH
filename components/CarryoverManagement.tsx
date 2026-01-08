@@ -15,6 +15,8 @@ import {
     validateCarryover,
     DEFAULT_CARRYOVER_RULE
 } from '../utils/carryoverCalculations';
+import { adminService } from '../services/adminService';
+import { CarryoverMetrics } from './admin';
 
 interface CarryoverManagementProps {
     currentUser: User;
@@ -50,14 +52,8 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
 
     const loadDepartments = async () => {
         try {
-            const { data, error } = await supabaseClient
-                .from('profiles')
-                .select('department')
-                .not('department', 'is', null);
-
-            if (error) throw error;
-
-            const uniqueDepts = [...new Set(data.map((p: any) => p.department))].filter(Boolean);
+            const users = await adminService.fetchUsers();
+            const uniqueDepts = [...new Set(users.map((u: any) => u.department))].filter(Boolean);
             setDepartments(uniqueDepts as string[]);
         } catch (error) {
             console.error('Erreur chargement départements:', error);
@@ -67,67 +63,23 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
     const loadCarryovers = async () => {
         setLoading(true);
         try {
-            let query = supabaseClient
-                .from('annual_carryovers')
-                .select(`
-          *,
-          profiles!annual_carryovers_user_id_fkey (
-            id,
-            full_name,
-            email,
-            department,
-            hire_date
-          )
-        `)
-                .order('year', { ascending: false });
+            const transformed = await adminService.fetchCarryovers(
+                filters.year || new Date().getFullYear(),
+                filters.status,
+                filters.department
+            );
 
-            // Appliquer les filtres
-            if (filters.year) {
-                query = query.eq('year', filters.year);
-            }
-            if (filters.status) {
-                query = query.eq('status', filters.status);
-            }
-
-            const { data, error } = await query;
-
-            if (error) throw error;
-
-            // Transformer les données
-            let transformed: EmployeeBalanceView[] = data.map((item: any) => ({
-                userId: item.user_id,
-                fullName: item.profiles?.full_name || 'N/A',
-                department: item.profiles?.department || 'N/A',
-                hireDate: item.profiles?.hire_date || '',
-                year: item.year,
-                accruedDays: item.accrued_days,
-                usedDays: item.used_days,
-                remainingDays: item.remaining_days,
-                previousCarryover: item.previous_carryover,
-                nextCarryover: item.next_carryover,
-                forfeitedDays: item.forfeited_days,
-                usedDaysAdjustment: item.used_days_adjustment || 0,
-                totalUsedDays: (item.used_days || 0) + (item.used_days_adjustment || 0),
-                status: item.status,
-                validatedAt: item.validated_at,
-                validatedBy: item.validated_by
-            }));
-
-            // Filtrer par département
-            if (filters.department) {
-                transformed = transformed.filter(c => c.department === filters.department);
-            }
-
-            // Filtrer par terme de recherche
+            // Filtrer localement par terme de recherche pour plus de fluidité
+            let filtered = transformed;
             if (filters.searchTerm) {
                 const term = filters.searchTerm.toLowerCase();
-                transformed = transformed.filter(c =>
+                filtered = filtered.filter(c =>
                     c.fullName.toLowerCase().includes(term) ||
                     c.department.toLowerCase().includes(term)
                 );
             }
 
-            setCarryovers(transformed);
+            setCarryovers(filtered);
         } catch (error: any) {
             showNotification('error', 'Erreur lors du chargement des données: ' + error.message);
         } finally {
@@ -143,7 +95,7 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
     const recalculateCarryover = async (userId: string, year: number) => {
         setRecalculating(true);
         try {
-            // Récupérer les données de l'employé
+            // Récupérer les données de l'employé via Supabase (plus spécifique ici)
             const { data: profile, error: profileError } = await supabaseClient
                 .from('profiles')
                 .select('hire_date, balance_adjustment')
@@ -152,26 +104,23 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
 
             if (profileError) throw profileError;
 
-            // Récupérer l'ajustement existant pour cette année
-            const { data: currentCarryover } = await supabaseClient
+            // Récupérer l'ajustement existant & report précédent
+            const { data: carryover } = await supabaseClient
                 .from('annual_carryovers')
                 .select('used_days_adjustment')
                 .eq('user_id', userId)
                 .eq('year', year)
                 .single();
 
-            const usedAdj = currentCarryover?.used_days_adjustment || 0;
-
-            // Récupérer le report de l'année précédente
-            const { data: previousCarryover } = await supabaseClient
+            const { data: prevYear } = await supabaseClient
                 .from('annual_carryovers')
                 .select('next_carryover')
                 .eq('user_id', userId)
                 .eq('year', year - 1)
                 .single();
 
-            // Calculer les jours utilisés dans l'année
-            const { data: leaveHistory, error: historyError } = await supabaseClient
+            // Jours utilisés
+            const { data: history } = await supabaseClient
                 .from('leave_history')
                 .select('duration')
                 .eq('user_id', userId)
@@ -179,12 +128,10 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                 .eq('status', 'APPROVED')
                 .eq('leave_type', 'ANNUAL');
 
-            if (historyError) throw historyError;
+            const usedDays = history?.reduce((sum: number, item: any) => sum + item.duration, 0) || 0;
+            const prevCarry = prevYear?.next_carryover || 0;
+            const usedAdj = carryover?.used_days_adjustment || 0;
 
-            const usedDays = leaveHistory?.reduce((sum: number, item: any) => sum + item.duration, 0) || 0;
-            const prevCarry = previousCarryover?.next_carryover || 0;
-
-            // Calculer le nouveau solde
             const calculation = calculateYearlyBalance(
                 profile.hire_date,
                 year,
@@ -194,13 +141,9 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                 DEFAULT_CARRYOVER_RULE
             );
 
-            // Valider le calcul
             const validation = validateCarryover(calculation);
-            if (!validation.isValid) {
-                throw new Error('Calcul invalide: ' + validation.errors.join(', '));
-            }
+            if (!validation.isValid) throw new Error('Calcul invalide: ' + validation.errors.join(', '));
 
-            // Mettre à jour ou créer l'enregistrement
             const carryoverData = {
                 user_id: userId,
                 year,
@@ -221,21 +164,8 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                 }
             };
 
-            const { error: upsertError } = await supabaseClient
-                .from('annual_carryovers')
-                .upsert(carryoverData, { onConflict: 'user_id,year' });
-
-            if (upsertError) throw upsertError;
-
-            // Enregistrer dans l'audit trail
-            await supabaseClient
-                .from('carryover_audit')
-                .insert({
-                    action: 'RECALCULATE',
-                    performed_by: currentUser.id,
-                    reason: 'Recalcul automatique',
-                    new_values: carryoverData
-                });
+            await adminService.upsertCarryover(carryoverData);
+            await adminService.logCarryoverAudit(userId + '-' + year, 'RECALCULATE', currentUser.id, 'Recalcul automatique', carryoverData);
 
             showNotification('success', 'Recalcul effectué avec succès');
             loadCarryovers();
@@ -248,28 +178,15 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
 
     const validateCarryoverRecord = async (carryover: EmployeeBalanceView, notes?: string) => {
         try {
-            const { error } = await supabaseClient
-                .from('annual_carryovers')
-                .update({
-                    status: 'VALIDATED',
-                    validated_by: currentUser.id,
-                    validated_at: new Date().toISOString(),
-                    admin_notes: notes
-                })
-                .eq('user_id', carryover.userId)
-                .eq('year', carryover.year);
+            const carryoverId = carryover.userId + '-' + carryover.year;
+            await adminService.updateCarryover(carryover.userId, carryover.year, {
+                status: 'VALIDATED',
+                validated_by: currentUser.id,
+                validated_at: new Date().toISOString(),
+                admin_notes: notes
+            });
 
-            if (error) throw error;
-
-            // Enregistrer dans l'audit trail
-            await supabaseClient
-                .from('carryover_audit')
-                .insert({
-                    action: 'VALIDATE',
-                    performed_by: currentUser.id,
-                    reason: notes || 'Validation administrative',
-                    new_values: { status: 'VALIDATED' }
-                });
+            await adminService.logCarryoverAudit(carryoverId, 'VALIDATE', currentUser.id, notes || 'Validation administrative', { status: 'VALIDATED' });
 
             showNotification('success', 'Report validé avec succès');
             setShowValidationModal(false);
@@ -281,30 +198,14 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
 
     const handleCorrection = async (userId: string, year: number, adjustment: number, reason: string) => {
         try {
-            // Mettre à jour l'ajustement
-            const { error: updateError } = await supabaseClient
-                .from('annual_carryovers')
-                .update({
-                    used_days_adjustment: adjustment,
-                    admin_notes: reason
-                })
-                .eq('user_id', userId)
-                .eq('year', year);
+            await adminService.updateCarryover(userId, year, {
+                used_days_adjustment: adjustment,
+                admin_notes: reason
+            });
 
-            if (updateError) throw updateError;
-
-            // Recalculer pour mettre à jour les reports
             await recalculateCarryover(userId, year);
 
-            // Audit
-            await supabaseClient
-                .from('carryover_audit')
-                .insert({
-                    action: 'ADJUST',
-                    performed_by: currentUser.id,
-                    reason: `Correction solde consommé: ${adjustment > 0 ? '+' : ''}${adjustment}j. Raison: ${reason}`,
-                    new_values: { used_days_adjustment: adjustment }
-                });
+            await adminService.logCarryoverAudit(userId + '-' + year, 'ADJUST', currentUser.id, `Correction solde consommé: ${adjustment > 0 ? '+' : ''}${adjustment}j. Raison: ${reason}`, { used_days_adjustment: adjustment });
 
             showNotification('success', 'Correction appliquée avec succès');
             setShowCorrectionModal(false);
@@ -521,32 +422,9 @@ const CarryoverManagement: React.FC<CarryoverManagementProps> = ({ currentUser, 
                         </div>
                     </div>
 
-                    {/* Statistiques */}
-                    <div className="p-8 bg-gradient-to-r from-slate-50 to-indigo-50">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">Total Employés</div>
-                                <div className="text-3xl font-black text-slate-900">{carryovers.length}</div>
-                            </div>
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-emerald-600 uppercase tracking-wider mb-2">Validés</div>
-                                <div className="text-3xl font-black text-emerald-600">
-                                    {carryovers.filter(c => c.status === 'VALIDATED').length}
-                                </div>
-                            </div>
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-amber-600 uppercase tracking-wider mb-2">En Attente</div>
-                                <div className="text-3xl font-black text-amber-600">
-                                    {carryovers.filter(c => c.status === 'PENDING').length}
-                                </div>
-                            </div>
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-rose-600 uppercase tracking-wider mb-2">Jours Perdus</div>
-                                <div className="text-3xl font-black text-rose-600">
-                                    {carryovers.reduce((sum, c) => sum + c.forfeitedDays, 0).toFixed(1)}
-                                </div>
-                            </div>
-                        </div>
+                    {/* Statistiques Dynamiques */}
+                    <div className="p-8 bg-slate-50 border-t border-slate-100">
+                        <CarryoverMetrics data={carryovers} />
                     </div>
                 </div>
             </div>

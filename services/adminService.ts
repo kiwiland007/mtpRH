@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabase';
-import { UserRole, LeaveStatus, LeaveType } from '../types';
+import { UserRole, LeaveStatus, LeaveType, CarryoverStatus } from '../types';
 
 export const adminService = {
     async fetchUsers() {
@@ -113,5 +113,78 @@ export const adminService = {
             details,
             performed_by: userId
         }]);
+    },
+
+    // --- CARRYOVER OPERATIONS ---
+
+    async fetchCarryovers(year: number, status?: CarryoverStatus, department?: string) {
+        let query = supabase.from('annual_carryovers').select(`
+            *,
+            profiles!annual_carryovers_user_id_fkey (
+                id,
+                full_name,
+                email,
+                department,
+                hire_date
+            )
+        `).eq('year', year);
+
+        if (status) query = query.eq('status', status);
+
+        const { data, error } = await query.order('user_id');
+        if (error) throw error;
+
+        let results = data || [];
+        if (department) {
+            results = results.filter((item: any) => item.profiles?.department === department);
+        }
+
+        return results.map((item: any) => ({
+            userId: item.user_id,
+            fullName: item.profiles?.full_name || 'N/A',
+            department: item.profiles?.department || 'N/A',
+            hireDate: item.profiles?.hire_date || '',
+            year: item.year,
+            accruedDays: item.accrued_days,
+            usedDays: item.used_days,
+            remainingDays: item.remaining_days,
+            previousCarryover: item.previous_carryover,
+            nextCarryover: item.next_carryover,
+            forfeitedDays: item.forfeited_days,
+            usedDaysAdjustment: item.used_days_adjustment || 0,
+            totalUsedDays: (item.used_days || 0) + (item.used_days_adjustment || 0),
+            status: item.status,
+            validatedAt: item.validated_at,
+            validatedBy: item.validated_by
+        }));
+    },
+
+    async updateCarryover(userId: string, year: number, data: any) {
+        const { error } = await supabase
+            .from('annual_carryovers')
+            .update(data)
+            .eq('user_id', userId)
+            .eq('year', year);
+        if (error) throw error;
+    },
+
+    async upsertCarryover(carryoverData: any) {
+        const { error } = await supabase
+            .from('annual_carryovers')
+            .upsert(carryoverData, { onConflict: 'user_id,year' });
+        if (error) throw error;
+    },
+
+    async logCarryoverAudit(carryoverId: string, action: string, performedBy: string, reason: string, details: any) {
+        const { error } = await supabase
+            .from('carryover_audit')
+            .insert({
+                carryover_id: carryoverId,
+                action,
+                performed_by: performedBy,
+                reason,
+                new_values: details
+            });
+        if (error) throw error;
     }
 };

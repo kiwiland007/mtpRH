@@ -194,9 +194,16 @@ export const calculateProrataAccrual = (
     // Ajuster la date de début si embauché pendant la période
     const effectiveStart = hire > start ? hire : start;
 
-    // Calculer le nombre de mois travaillés
-    const diffMs = end.getTime() - effectiveStart.getTime();
-    const monthsWorked = diffMs / (1000 * 60 * 60 * 24 * 30.44); // Mois moyen
+    // Calculer le nombre de mois travaillés de manière plus robuste
+    let monthsWorked: number;
+
+    // Si ce sont des dates de début/fin de mois, utiliser une différence simple
+    if (effectiveStart.getDate() === 1 && (new Date(end.getTime() + 86400000).getDate() === 1)) {
+        monthsWorked = (end.getFullYear() - effectiveStart.getFullYear()) * 12 + (end.getMonth() - effectiveStart.getMonth()) + 1;
+    } else {
+        const diffMs = end.getTime() - effectiveStart.getTime() + 86400000; // +1 jour pour inclure les deux bornes
+        monthsWorked = diffMs / (1000 * 60 * 60 * 24 * 30.4375); // Année / 12
+    }
 
     // Calculer l'ancienneté à la fin de la période
     const yearsOfService = calculateYearsOfService(hireDate, endDate);
@@ -206,7 +213,7 @@ export const calculateProrataAccrual = (
     const monthlyRate = annualRate / 12;
     const prorataAccrual = monthlyRate * monthsWorked;
 
-    return Math.round(prorataAccrual * 100) / 100;
+    return Math.round(prorataAccrual * 2) / 2; // Arrondir au 0.5 le plus proche (standard RH)
 };
 
 /**
