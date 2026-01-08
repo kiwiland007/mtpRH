@@ -3,7 +3,16 @@ import React, { useState, useEffect } from 'react';
 import { UserRole, LeaveStatus, LeaveType, User } from '../types';
 import { supabase } from '../lib/supabase';
 import { calculateMoroccanAccruedDays, calculateBalanceAnalysis, calculateBusinessDays } from '../utils/calculations';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
+import { adminService } from '../services/adminService';
+import {
+  EditingUserModal,
+  EditRequestModal,
+  DecisionModal,
+  AddUserModal,
+  AdminCreateRequestModal,
+  SummaryCards,
+  AnalyticsCharts
+} from './admin';
 
 interface AdminPanelProps {
   user?: User | null;
@@ -43,15 +52,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
 
   const auditLog = async (action: string, details: any) => {
     try {
-      if (user) {
-        await supabase.from('audit_logs').insert([{
-          action,
-          performed_by: user.id,
-          details
-        }]);
-      }
+      await adminService.logAudit(action, details, user?.id);
     } catch (e) {
-      console.warn('Audit Log failed (table might be missing):', action);
+      console.warn("Audit logging failed:", e);
     }
   };
 
@@ -63,49 +66,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Essayer d'abord avec la relation (join)
-      let { data: reqs, error: reqError } = await supabase
-        .from('leave_requests')
-        .select('*, profiles(full_name, department)')
-        .order('created_at', { ascending: false });
+      const [reqs, users, logData] = await Promise.all([
+        adminService.fetchAllRequests(),
+        adminService.fetchUsers(),
+        adminService.fetchLogs()
+      ]);
 
-      // Si la relation n'existe pas, faire un fallback sans join
-      if (reqError && (reqError.message?.includes('relationship') || reqError.message?.includes('schema cache'))) {
-        const { data: reqsData, error: reqsError } = await supabase
-          .from('leave_requests')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (reqsError) throw reqsError;
-        reqs = reqsData || [];
-
-        // Enrichir manuellement avec les données des profils
-        const { data: users, error: usersError } = await supabase.from('profiles').select('*');
-        if (usersError) {
-          console.error("Erreur lors du chargement des profils:", usersError);
-          if (onNotification) onNotification("Erreur lors du chargement des données utilisateurs");
-        }
-
-        const usersMap = new Map((users || []).map(u => [u.id, u]));
-
-        reqs = (reqs || []).map(req => ({
-          ...req,
-          profiles: usersMap.get(req.user_id) || { full_name: 'Inconnu', department: 'N/A' }
-        }));
-      } else if (reqError) {
-        throw reqError;
-      }
-
-      const { data: users, error: userError } = await supabase.from('profiles').select('*').order('full_name');
-      if (userError) throw userError;
-
-      setAllRequests(reqs || []);
-      setDbUsers(users || []);
-
-      // Fetch logs if table exists
-      const { data: logData } = await supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(50);
-      if (logData) setLogs(logData);
-
+      setAllRequests(reqs);
+      setDbUsers(users);
+      setLogs(logData);
     } catch (err: any) {
       console.error("Erreur de synchronisation:", err);
       if (onNotification) onNotification(`Erreur de chargement: ${err.message}`);
@@ -406,20 +375,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
 
   return (
     <div className="space-y-8 animate-in pb-20">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          { label: 'En attente', val: stats.pending, color: 'bg-rose-600' },
-          { label: 'Effectif', val: stats.totalEmployees, color: 'bg-indigo-900' },
-          { label: 'Historique', val: stats.approved, color: 'bg-emerald-500' },
-          { label: 'Indice moyen', val: stats.avgDuration + ' j', color: 'bg-slate-800' },
-        ].map((s, i) => (
-          <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className={`absolute top-0 right-0 w-1.5 h-full ${s.color}`}></div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{s.label}</p>
-            <p className="text-3xl font-black text-slate-900 mt-1">{s.val}</p>
-          </div>
-        ))}
-      </div>
+      <SummaryCards stats={stats} />
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-200 pb-6">
         <div className="flex bg-slate-100 p-1.5 rounded-2xl w-fit flex-wrap gap-1">
@@ -438,49 +394,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
         )}
       </div>
 
-      {/* Overview View */}
-      {view === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
-            <h3 className="text-xl font-black text-slate-900 mb-6">Répartition par Département</h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={deptData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {deptData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={['#1e3a8a', '#3b82f6', '#60a5fa', '#93c5fd', '#dbeafe', '#f59e0b'][index % 6]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
-            <h3 className="text-xl font-black text-slate-900 mb-6">Activité RH</h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={deptData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
-                  <YAxis axisLine={false} tickLine={false} />
-                  <Tooltip cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="value" fill="#1e3a8a" radius={[10, 10, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
+      {view === 'overview' && <AnalyticsCharts deptData={deptData} />}
 
       {/* Requests View - Validation des demandes */}
       {view === 'requests' && (
@@ -1022,401 +936,53 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
         </div>
       )}
 
-      {/* Editing Modal */}
-      {
-        editingUser && (
-          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
-            <div className="bg-white w-full max-w-4xl rounded-[4rem] p-12 shadow-2xl animate-in max-h-[90vh] overflow-y-auto scrollbar-hide">
-              <div className="flex justify-between items-center mb-10 border-b border-slate-100 pb-8">
-                <div className="flex items-center gap-6"><div className="w-20 h-20 bg-indigo-900 text-white rounded-[2rem] flex items-center justify-center text-2xl font-black">{editingUser.full_name?.charAt(0) || '?'}</div><div><h3 className="text-3xl font-black text-slate-900 tracking-tighter">{editingUser.full_name}</h3><p className="text-slate-400 font-medium italic">Audit de solde & Paramètres</p></div></div>
-                <button onClick={() => setEditingUser(null)} className="p-4 bg-slate-50 rounded-full text-slate-400 hover:text-slate-900 transition-all"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg></button>
-              </div>
-              <form onSubmit={handleUpdateUser} className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                <div className="space-y-6">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Données Identité</h4>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Nom Complet</label>
-                      <input className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.full_name} onChange={e => setEditingUser({ ...editingUser, full_name: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Département</label>
-                      <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.department} onChange={e => setEditingUser({ ...editingUser, department: e.target.value })}>
-                        {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Email</label>
-                      <input type="email" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" value={editingUser.email} onChange={e => setEditingUser({ ...editingUser, email: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Rôle</label>
-                      <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.role} onChange={e => setEditingUser({ ...editingUser, role: e.target.value as UserRole })}>
-                        <option value={UserRole.EMPLOYEE}>Employé</option>
-                        <option value={UserRole.MANAGER}>Manager</option>
-                        <option value={UserRole.HR}>RH</option>
-                        <option value={UserRole.ADMIN}>Administrateur</option>
-                      </select>
-                    </div>
+      {/* Extracted Modals */}
+      <EditingUserModal
+        editingUser={editingUser}
+        setEditingUser={setEditingUser}
+        departments={departments}
+        dbUsers={dbUsers}
+        allRequests={allRequests}
+        onUpdateUser={handleUpdateUser}
+        generatePassword={generatePassword}
+        generatedPassword={generatedPassword}
+        onNotification={onNotification}
+        auditLog={auditLog}
+      />
 
-                    <div className="flex items-center gap-3 bg-slate-100 p-4 rounded-xl">
-                      <input
-                        type="checkbox"
-                        className="w-5 h-5 accent-indigo-600"
-                        checked={editingUser.is_active !== false}
-                        onChange={e => setEditingUser({ ...editingUser, is_active: e.target.checked })}
-                      />
-                      <span className="text-sm font-bold text-slate-700">Compte Actif (Décocher pour archiver)</span>
-                    </div>
+      <EditRequestModal
+        editRequestModal={editRequestModal}
+        setEditRequestModal={setEditRequestModal}
+        onEditRequest={handleEditRequest}
+      />
 
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Manager Direct</label>
-                      <select
-                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none"
-                        value={editingUser.manager_id || ''}
-                        onChange={e => setEditingUser({ ...editingUser, manager_id: e.target.value })}
-                      >
-                        <option value="">Aucun (Root Admin)</option>
-                        {dbUsers.filter(u => u.id !== editingUser.id).map(u => (
-                          <option key={u.id} value={u.id}>{u.full_name} ({u.role})</option>
-                        ))}
-                      </select>
-                      <p className="text-[10px] text-slate-400 mt-1 px-1">Définit le responsable qui recevra les demandes de congés.</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-6">
-                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Contrat & Solde</h4>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
-                      <input type="date" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.hire_date} onChange={e => setEditingUser({ ...editingUser, hire_date: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Ajustement Solde (+/- jours)</label>
-                      <input type="number" step="0.5" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={editingUser.balance_adjustment || 0} onChange={e => setEditingUser({ ...editingUser, balance_adjustment: e.target.value })} />
-                      <p className="text-[10px] text-slate-400 mt-1 px-1">Ajoute ou retire des jours au solde calculé automatiquement.</p>
-                    </div>
-                    <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 mt-4">
-                      <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-indigo-900">Congés Acquis (Auto)</span><span className="text-lg font-black text-indigo-600">{calculateMoroccanAccruedDays(editingUser.hire_date).toFixed(1)} j</span></div>
-                      {Number(editingUser.balance_adjustment) !== 0 && (
-                        <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-amber-900">Ajustement Manuel</span><span className="text-lg font-black text-amber-600">{Number(editingUser.balance_adjustment) > 0 ? '+' : ''}{Number(editingUser.balance_adjustment).toFixed(1)} j</span></div>
-                      )}
-                      <div className="flex justify-between items-center mb-4"><span className="text-xs font-bold text-rose-900">Consommé</span><span className="text-lg font-black text-rose-600">-{allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)} j</span></div>
-                      <div className="flex justify-between items-center pt-4 border-t border-indigo-200"><span className="text-xs font-bold text-emerald-900">Solde Restant</span><span className="text-lg font-black text-emerald-600">{Math.max(0, calculateMoroccanAccruedDays(editingUser.hire_date) + (Number(editingUser.balance_adjustment) || 0) - allRequests.filter(r => r.user_id === editingUser.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0)).toFixed(1)} j</span></div>
-                    </div>
-                  </div>
-                </div>
+      <DecisionModal
+        decisionModal={decisionModal}
+        setDecisionModal={setDecisionModal}
+        managerComment={managerComment}
+        setManagerComment={setManagerComment}
+        onDecision={handleDecision}
+      />
 
-                {/* Preferences & Security */}
-                <div className="mt-8 pt-8 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-10">
-                  <div>
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 mb-4">Sécurité</h4>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!editingUser.email) return;
-                        if (window.confirm(`Envoyer un email de réinitialisation à ${editingUser.email} ?`)) {
-                          const { error } = await supabase.auth.resetPasswordForEmail(editingUser.email);
-                          if (error) {
-                            if (onNotification) onNotification(`Erreur: ${error.message}`);
-                          } else {
-                            if (onNotification) onNotification(`Email envoyé à ${editingUser.email}`);
-                            await auditLog('RESET_PASSWORD_TRIGGER', { target_email: editingUser.email });
-                          }
-                        }
-                      }}
-                      className="w-full py-4 border-2 border-slate-200 rounded-2xl font-bold text-slate-600 hover:border-slate-900 hover:text-slate-900 transition-all text-sm flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
-                      Réinitialiser mot de passe
-                    </button>
-                    <div className="mt-4 p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mot de passe temporaire</span>
-                        <button
-                          type="button"
-                          onClick={generatePassword}
-                          className="text-[10px] font-black text-indigo-600 uppercase hover:underline"
-                        >
-                          Générer
-                        </button>
-                      </div>
-                      {generatedPassword ? (
-                        <div className="flex items-center justify-between">
-                          <code className="bg-white px-3 py-2 rounded-lg border border-slate-200 font-mono text-sm font-bold text-indigo-600">{generatedPassword}</code>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(generatedPassword);
-                              if (onNotification) onNotification("Copié !");
-                            }}
-                            className="p-2 text-slate-400 hover:text-indigo-600 transition-all"
-                            title="Copier"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
-                          </button>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-slate-400 italic">Générez un mot de passe sécurisé à communiquer au collaborateur.</p>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 mb-4">Préférences Système</h4>
-                    <div className="space-y-3">
-                      <label className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4 accent-indigo-600"
-                          checked={editingUser.preferences?.email_notifications !== false} // True by default
-                          onChange={e => setEditingUser({ ...editingUser, preferences: { ...editingUser.preferences, email_notifications: e.target.checked } })}
-                        />
-                        <span className="text-xs font-bold text-slate-700">Notifications Email</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
+      <AddUserModal
+        isAdding={isAdding}
+        setIsAdding={setIsAdding}
+        newUser={newUser}
+        setNewUser={setNewUser}
+        departments={departments}
+        dbUsers={dbUsers}
+        onAddUser={handleAddUser}
+      />
 
-                <div className="mt-8 flex justify-end gap-4 col-span-full">
-                  <button type="button" onClick={() => setEditingUser(null)} className="px-6 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all">Annuler</button>
-                  <button type="submit" className="bg-indigo-900 text-white px-10 py-4 rounded-[2rem] font-black text-sm shadow-xl hover:bg-black transition-all">Enregistrer les modifications</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
-
-      {/* Edit Request Modal */}
-      {
-        editRequestModal && (
-          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[90] flex items-center justify-center p-6">
-            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in">
-              <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Modifier la demande</h3>
-              <form onSubmit={handleEditRequest} className="space-y-6">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Type de congé</label>
-                  <select
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none"
-                    value={editRequestModal.type}
-                    onChange={e => setEditRequestModal({ ...editRequestModal, type: e.target.value })}
-                  >
-                    {Object.values(LeaveType).map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Début</label>
-                    <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={editRequestModal.start_date} onChange={e => setEditRequestModal({ ...editRequestModal, start_date: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Fin</label>
-                    <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={editRequestModal.end_date} onChange={e => setEditRequestModal({ ...editRequestModal, end_date: e.target.value })} />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-3 pt-4">
-                  <button type="button" onClick={() => setEditRequestModal(null)} className="px-6 py-3 text-slate-500 font-bold rounded-2xl hover:bg-slate-50">Annuler</button>
-                  <button type="submit" className="px-8 py-3 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 shadow-lg">Sauvegarder</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
-
-      {/* Decision Modal */}
-      {
-        decisionModal && (
-          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
-            <div className="bg-white w-full max-w-2xl rounded-[4rem] p-12 shadow-2xl animate-in">
-              <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">
-                {decisionModal.action === LeaveStatus.APPROVED ? 'Approuver la demande' : 'Refuser la demande'}
-              </h3>
-              <div className="space-y-6">
-                <div>
-                  <label className="text-sm font-black text-slate-700 block mb-2">Commentaire (optionnel)</label>
-                  <textarea
-                    rows={4}
-                    value={managerComment}
-                    onChange={(e) => setManagerComment(e.target.value)}
-                    placeholder="Ajoutez un commentaire pour le collaborateur..."
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm focus:border-indigo-500 outline-none resize-none"
-                  />
-                </div>
-                <div className="flex items-center justify-end gap-4">
-                  <button
-                    onClick={() => {
-                      setDecisionModal(null);
-                      setManagerComment('');
-                    }}
-                    className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-all"
-                  >
-                    Annuler
-                  </button>
-                  <button
-                    onClick={handleDecision}
-                    className={`px-8 py-3 rounded-2xl font-black text-sm transition-all ${decisionModal.action === LeaveStatus.APPROVED
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : 'bg-rose-600 text-white hover:bg-rose-700'
-                      }`}
-                  >
-                    {decisionModal.action === LeaveStatus.APPROVED ? 'Confirmer l\'approbation' : 'Confirmer le refus'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      }
-
-      {/* Add User Modal */}
-      {
-        isAdding && (
-          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[80] flex items-center justify-center p-6">
-            <div className="bg-white w-full max-w-2xl rounded-[4rem] p-16 shadow-2xl animate-in">
-              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Nouveau Talent</h3>
-              <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <input required className="col-span-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" placeholder="Nom Complet" value={newUser.full_name} onChange={e => setNewUser({ ...newUser, full_name: e.target.value })} />
-                <input type="email" required className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold focus:border-indigo-500 outline-none" placeholder="Email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
-                <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.department} onChange={e => setNewUser({ ...newUser, department: e.target.value })}>
-                  {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <select className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value as UserRole })}>
-                  <option value={UserRole.EMPLOYEE}>Employé</option>
-                  <option value={UserRole.MANAGER}>Manager</option>
-                  <option value={UserRole.HR}>RH</option>
-                  <option value={UserRole.ADMIN}>Administrateur</option>
-                </select>
-                <div className="col-span-full">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Date d'embauche</label>
-                  <input type="date" required className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none" value={newUser.hire_date} onChange={e => setNewUser({ ...newUser, hire_date: e.target.value })} />
-                </div>
-                <div className="col-span-full">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Manager Direct</label>
-                  <select
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-sm font-bold outline-none"
-                    value={newUser.manager_id}
-                    onChange={e => setNewUser({ ...newUser, manager_id: e.target.value })}
-                  >
-                    <option value="">Aucun (Root Admin)</option>
-                    {dbUsers.map(u => (
-                      <option key={u.id} value={u.id}>{u.full_name} ({u.role})</option>
-                    ))}
-                  </select>
-                </div>
-                <button type="submit" className="col-span-full bg-indigo-900 text-white py-6 rounded-[2rem] font-black text-sm hover:bg-black transition-all">Intégrer dans MOUMEN RH</button>
-                <button type="button" onClick={() => setIsAdding(false)} className="col-span-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest">Fermer</button>
-              </form>
-            </div>
-          </div>
-        )
-      }
-      {/* Admin Create Request Modal */}
-      {
-        isCreatingRequest && (
-          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-[90] flex items-center justify-center p-6">
-            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in max-h-[90vh] overflow-y-auto">
-              <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-8 px-2">Créer une demande (Admin)</h3>
-              <form onSubmit={handleAdminCreateRequest} className="space-y-6">
-                <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100 flex items-center justify-between">
-                  <span className="text-xs font-bold text-indigo-900">Demande de demi-journée</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newAdminRequest.isHalfDay}
-                      onChange={(e) => setNewAdminRequest({ ...newAdminRequest, isHalfDay: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Collaborateur</label>
-                  <select
-                    required
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:border-indigo-500"
-                    value={newAdminRequest.userId}
-                    onChange={e => setNewAdminRequest({ ...newAdminRequest, userId: e.target.value })}
-                  >
-                    <option value="">Sélectionner un collaborateur...</option>
-                    {dbUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Type</label>
-                    <select
-                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:border-indigo-500"
-                      value={newAdminRequest.type}
-                      onChange={e => setNewAdminRequest({ ...newAdminRequest, type: e.target.value as LeaveType })}
-                    >
-                      {Object.values(LeaveType).map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Durée (Jours)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0.5"
-                      required
-                      className="w-full bg-indigo-50 border-2 border-indigo-100 rounded-2xl p-4 text-sm font-black outline-none text-indigo-700"
-                      value={newAdminRequest.duration || (newAdminRequest.isHalfDay ? 0.5 : calculateBusinessDays(newAdminRequest.startDate, newAdminRequest.endDate))}
-                      onChange={e => setNewAdminRequest({ ...newAdminRequest, duration: parseFloat(e.target.value) })}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Début (Inclus)</label>
-                    <input
-                      type="date"
-                      required
-                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:border-indigo-500"
-                      value={newAdminRequest.startDate}
-                      onChange={e => setNewAdminRequest({ ...newAdminRequest, startDate: e.target.value })}
-                    />
-                  </div>
-                  {!newAdminRequest.isHalfDay && (
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Fin (Inclus)</label>
-                      <input
-                        type="date"
-                        required
-                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:border-indigo-500"
-                        value={newAdminRequest.endDate}
-                        onChange={e => setNewAdminRequest({ ...newAdminRequest, endDate: e.target.value })}
-                      />
-                    </div>
-                  )}
-                  {newAdminRequest.isHalfDay && (
-                    <div className="flex items-center justify-center bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 opacity-50">
-                      <span className="text-[10px] font-black text-slate-400 uppercase">Demi-journée</span>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">Commentaire</label>
-                  <textarea rows={2} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-sm font-medium outline-none focus:border-indigo-500 resize-none" placeholder="Motif ou note administrative..." value={newAdminRequest.comment} onChange={e => setNewAdminRequest({ ...newAdminRequest, comment: e.target.value })} />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-6">
-                  <button type="button" onClick={() => setIsCreatingRequest(false)} className="px-8 py-4 text-slate-500 font-bold rounded-2xl hover:bg-slate-50 transition-all text-sm">Annuler</button>
-                  <button type="submit" className="px-10 py-4 bg-indigo-900 text-white font-black rounded-2xl hover:bg-black shadow-xl transition-all text-sm flex items-center gap-2">
-                    {loading && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
-                    Enregistrer ✨
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
+      <AdminCreateRequestModal
+        isCreatingRequest={isCreatingRequest}
+        setIsCreatingRequest={setIsCreatingRequest}
+        newAdminRequest={newAdminRequest}
+        setNewAdminRequest={setNewAdminRequest}
+        dbUsers={dbUsers}
+        onAdminCreateRequest={handleAdminCreateRequest}
+        loading={loading}
+      />
 
     </div >
   );
