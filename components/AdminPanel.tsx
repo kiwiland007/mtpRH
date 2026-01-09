@@ -19,9 +19,10 @@ interface AdminPanelProps {
   user?: User | null;
   onUpdate?: () => void;
   onNotification?: (message: string) => void;
+  onNavigate?: (tab: 'dashboard' | 'request' | 'calendar' | 'admin' | 'carryovers' | 'history') => void;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification, onNavigate }) => {
   const [view, setView] = useState<'overview' | 'requests' | 'users' | 'settings' | 'history' | 'reports' | 'logs' | 'integrity'>('overview');
   const [allRequests, setAllRequests] = useState<any[]>([]);
   const [dbUsers, setDbUsers] = useState<any[]>([]);
@@ -722,8 +723,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                         <td className="px-10 py-6 text-right">
                           <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => {
-                              setHistoryFilter({ employee: u.full_name, status: 'ALL', period: 'ALL' });
-                              setView('history');
+                              if (onNavigate) onNavigate('history');
                             }} className="p-2 text-slate-400 hover:bg-slate-50 rounded-xl transition-all" title="Voir historique">
                               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             </button>

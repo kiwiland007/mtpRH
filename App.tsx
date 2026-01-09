@@ -352,7 +352,7 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN', is_active = true;`;
               <div className="animate-in">
                 {activeTab === 'dashboard' && <Dashboard user={currentUser} requests={requests} />}
                 {activeTab === 'request' && <LeaveForm onSubmit={handleNewRequest} onNotification={addNotification} />}
-                {activeTab === 'admin' && <AdminPanel user={currentUser} onUpdate={() => fetchRequests()} onNotification={addNotification} />}
+                {activeTab === 'admin' && <AdminPanel user={currentUser} onUpdate={() => fetchRequests()} onNotification={addNotification} onNavigate={setActiveTab} />}
                 {activeTab === 'carryovers' && <CarryoverManagement currentUser={currentUser} supabaseClient={supabase} />}
                 {activeTab === 'history' && <LeaveHistory currentUser={currentUser} supabaseClient={supabase} />}
               </div>
