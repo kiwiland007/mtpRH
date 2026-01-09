@@ -226,7 +226,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
       if (targetAction === LeaveStatus.APPROVED && updatedReq) {
         try {
           const fiscalYear = new Date(updatedReq.start_date).getFullYear();
-          await supabase.from('leave_history').upsert({
+
+          // 1. Vérifier si l'entrée existe déjà
+          const { data: existing } = await supabase
+            .from('leave_history')
+            .select('id')
+            .eq('leave_request_id', updatedReq.id)
+            .maybeSingle();
+
+          const historyData = {
             user_id: updatedReq.user_id,
             leave_request_id: updatedReq.id,
             leave_type: updatedReq.type,
@@ -238,9 +246,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
             manager_comment: comment,
             approved_by: user?.id,
             approved_at: new Date().toISOString()
-          }, { onConflict: 'leave_request_id' });
+          };
+
+          if (existing) {
+            // Mise à jour
+            await supabase.from('leave_history').update(historyData).eq('id', existing.id);
+          } else {
+            // Insertion
+            await supabase.from('leave_history').insert([historyData]);
+          }
         } catch (historyErr) {
-          console.warn("Sync historique échoué (silencieux) : possible manque de contrainte UNIQUE sur leave_request_id.", historyErr);
+          console.warn("Erreur synchronisation historique (non-bloquante):", historyErr);
         }
       }
 
