@@ -451,361 +451,269 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
     const departments = Array.from(new Set(employees.map(e => e.department))).filter(Boolean);
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-8">
-            {/* Header */}
-            <div className="max-w-7xl mx-auto mb-8">
-                <div className="bg-white rounded-[3rem] shadow-2xl shadow-slate-200/50 overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-10 text-white relative">
-                        <div className="relative z-10">
-                            <h1 className="text-4xl font-black tracking-tight">Historique des Congés</h1>
-                            <p className="text-blue-100 mt-2 font-medium">
-                                Registre complet et détaillé de toutes les demandes de congés
-                            </p>
-                        </div>
-                        <div className="absolute top-0 right-0 p-10 opacity-20">
-                            <svg className="w-32 h-32" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z" />
-                            </svg>
+        <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans selection:bg-indigo-100 selection:text-indigo-900">
+            {/* Header & Main Card */}
+            <div className="max-w-7xl mx-auto space-y-6">
+                <div className="bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden">
+                    {/* Top Aesthetic Header */}
+                    <div className="bg-slate-950 p-8 md:p-12 text-white relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-indigo-500/10 to-transparent"></div>
+                        <div className="absolute -top-24 -right-24 w-64 h-64 bg-rose-500/10 rounded-full blur-3xl"></div>
+
+                        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+                            <div>
+                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full backdrop-blur-md border border-white/10 mb-4">
+                                    <span className="w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span>
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Data Registry</span>
+                                </div>
+                                <h1 className="text-4xl md:text-5xl font-black tracking-tighter leading-none mb-2">Historique des Congés</h1>
+                                <p className="text-slate-400 font-medium max-w-md text-sm md:text-base">
+                                    Vue centralisée et analytique de toutes les absences et demandes de l'organisation.
+                                </p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={loadData} className="p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all group" title="Actualiser">
+                                    <svg className="w-5 h-5 text-white group-hover:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                </button>
+                                <div className="flex flex-col items-end">
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Dernière mise à jour</span>
+                                    <span className="text-sm font-bold">{new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     {/* Filtres */}
-                    <div className="p-8 border-b border-slate-200">
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Période</label>
-                                <select
-                                    value={filters.period}
-                                    onChange={(e) => setFilters({ ...filters, period: e.target.value as any })}
-                                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
-                                >
-                                    <option value="month">Mois en cours</option>
-                                    <option value="quarter">Trimestre</option>
-                                    <option value="year">Année en cours</option>
-                                    <option value="all">Toutes</option>
-                                    <option value="custom">Personnalisée</option>
-                                </select>
+                    {/* Filtres Avancés */}
+                    <div className="p-8 bg-white">
+                        <div className="flex flex-col lg:flex-row gap-8">
+                            {/* Barre latérale de recherche et période */}
+                            <div className="lg:w-1/3 space-y-6">
+                                <div className="relative group">
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher un profil, un motif..."
+                                        value={filters.searchTerm}
+                                        onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-semibold focus:border-indigo-500 focus:bg-white outline-none transition-all shadow-sm group-hover:border-slate-200"
+                                    />
+                                    <svg className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-indigo-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Période temporelle</label>
+                                        <select
+                                            value={filters.period}
+                                            onChange={(e) => setFilters({ ...filters, period: e.target.value as any })}
+                                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-3 text-xs font-bold focus:border-indigo-500 outline-none transition-all cursor-pointer"
+                                        >
+                                            <option value="month">Mois Actuel</option>
+                                            <option value="quarter">Trimestre</option>
+                                            <option value="year">Année en Cours</option>
+                                            <option value="all">Historique Global</option>
+                                            <option value="custom">Plage de Dates</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Type de Congé</label>
+                                        <select
+                                            value={filters.leaveType || 'all'}
+                                            onChange={(e) => setFilters({ ...filters, leaveType: e.target.value as any })}
+                                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-3 text-xs font-bold focus:border-indigo-500 outline-none transition-all cursor-pointer"
+                                        >
+                                            <option value="all">Tous types</option>
+                                            <option value="ANNUAL">🏝️ Annuels</option>
+                                            <option value="SICK">🤒 Maladie</option>
+                                            <option value="MATERNITY">👶 Maternité</option>
+                                            <option value="EXCEPTIONAL">🌟 Express</option>
+                                            <option value="RTT">⏰ RTT</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
 
-                            {currentUser.role !== UserRole.EMPLOYEE && (
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Employé</label>
+                            {/* Filtres secondaires */}
+                            <div className="lg:w-2/3 grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {currentUser.role !== UserRole.EMPLOYEE && (
+                                    <>
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Département</label>
+                                            <select
+                                                value={filters.department || 'all'}
+                                                onChange={(e) => setFilters({ ...filters, department: e.target.value })}
+                                                className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-4 px-4 text-xs font-bold focus:border-indigo-500 outline-none transition-all shadow-sm"
+                                            >
+                                                <option value="all">Tous Départements</option>
+                                                {departments.map((dept: any) => <option key={dept} value={dept}>{dept}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Collaborateur</label>
+                                            <select
+                                                value={filters.employeeId || ''}
+                                                onChange={(e) => setFilters({ ...filters, employeeId: e.target.value || undefined })}
+                                                className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-4 px-4 text-xs font-bold focus:border-indigo-500 outline-none transition-all shadow-sm"
+                                            >
+                                                <option value="">Tous Talents</option>
+                                                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
+                                <div className="space-y-1.5 font-sans">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">État Admission</label>
                                     <select
-                                        value={filters.employeeId || ''}
-                                        onChange={(e) => setFilters({ ...filters, employeeId: e.target.value || undefined })}
-                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
+                                        value={filters.status || 'all'}
+                                        onChange={(e) => setFilters({ ...filters, status: e.target.value as any })}
+                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-4 px-4 text-xs font-bold focus:border-indigo-500 outline-none transition-all shadow-sm"
                                     >
-                                        <option value="">Tous les employés</option>
-                                        {employees.map(emp => (
-                                            <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-                                        ))}
+                                        <option value="all">Tous Statuts</option>
+                                        <option value="PENDING">🕒 En Attente</option>
+                                        <option value="APPROVED">✅ Approuvé</option>
+                                        <option value="REJECTED">❌ Refusé</option>
+                                        <option value="CANCELLED">🚫 Annulé</option>
                                     </select>
                                 </div>
-                            )}
-
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Type de congé</label>
-                                <select
-                                    value={filters.leaveType || 'all'}
-                                    onChange={(e) => setFilters({ ...filters, leaveType: e.target.value as any })}
-                                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
-                                >
-                                    <option value="all">Tous les types</option>
-                                    <option value="ANNUAL">Congé Annuel</option>
-                                    <option value="SICK">Maladie</option>
-                                    <option value="MATERNITY">Maternité</option>
-                                    <option value="EXCEPTIONAL">Exceptionnel</option>
-                                    <option value="RTT">RTT</option>
-                                </select>
                             </div>
-
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Statut</label>
-                                <select
-                                    value={filters.status || 'all'}
-                                    onChange={(e) => setFilters({ ...filters, status: e.target.value as any })}
-                                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
-                                >
-                                    <option value="all">Tous les statuts</option>
-                                    <option value="PENDING">En attente</option>
-                                    <option value="APPROVED">Approuvé</option>
-                                    <option value="REJECTED">Rejeté</option>
-                                    <option value="CANCELLED">Annulé</option>
-                                </select>
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Recherche</label>
-                                <input
-                                    type="text"
-                                    placeholder="Nom, commentaire..."
-                                    value={filters.searchTerm}
-                                    onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
-                                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-medium focus:border-blue-500 outline-none transition-all"
-                                />
-                            </div>
-
-                            {currentUser.role !== UserRole.EMPLOYEE && (
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Département</label>
-                                    <select
-                                        value={filters.department || 'all'}
-                                        onChange={(e) => setFilters({ ...filters, department: e.target.value })}
-                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
-                                    >
-                                        <option value="all">Tous les départements</option>
-                                        {departments.map((dept: any) => (
-                                            <option key={dept} value={dept}>{dept}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
                         </div>
 
-                        {/* Période personnalisée */}
+                        {/* Dates Personnalisées */}
                         {filters.period === 'custom' && (
-                            <div className="grid grid-cols-2 gap-6 mt-6 p-6 bg-slate-50 rounded-2xl">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Date de début</label>
-                                    <input
-                                        type="date"
-                                        value={filters.startDate || ''}
-                                        onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-                                        className="w-full bg-white border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
-                                    />
+                            <div className="flex gap-4 mt-6 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in fade-in zoom-in duration-300">
+                                <div className="flex-1 space-y-1">
+                                    <span className="text-[10px] font-black text-indigo-400 uppercase ml-1">Du</span>
+                                    <input type="date" value={filters.startDate || ''} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} className="w-full bg-white border border-indigo-100 rounded-xl py-2 px-3 text-xs font-bold outline-none focus:ring-2 ring-indigo-500/20 shadow-sm" />
                                 </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Date de fin</label>
-                                    <input
-                                        type="date"
-                                        value={filters.endDate || ''}
-                                        onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-                                        className="w-full bg-white border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
-                                    />
+                                <div className="flex-1 space-y-1">
+                                    <span className="text-[10px] font-black text-indigo-400 uppercase ml-1">Au</span>
+                                    <input type="date" value={filters.endDate || ''} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} className="w-full bg-white border border-indigo-100 rounded-xl py-2 px-3 text-xs font-bold outline-none focus:ring-2 ring-indigo-500/20 shadow-sm" />
                                 </div>
                             </div>
                         )}
 
-                        {/* Actions d'export */}
-                        <div className="flex gap-4 mt-6">
-                            <button
-                                onClick={exportToExcel}
-                                className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all flex items-center gap-2"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                Exporter Excel
-                            </button>
-
-                            <button
-                                onClick={exportToPDF}
-                                className="bg-rose-600 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg shadow-rose-200 hover:bg-rose-700 transition-all flex items-center gap-2"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                </svg>
-                                Exporter PDF
-                            </button>
-
-                            <button
-                                onClick={loadData}
-                                className="bg-white border-2 border-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold text-sm hover:bg-slate-50 transition-all flex items-center gap-2"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                                Actualiser
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Statistiques */}
-                    {/* Statistiques et Graphique */}
-                    <div className="p-8 bg-gradient-to-r from-slate-50 to-blue-50 border-t border-slate-100">
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                            <div className="lg:col-span-8 grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 group-hover:text-indigo-600 transition-colors">Total Demandes</div>
-                                    <div className="text-3xl font-black text-slate-900">{history.length}</div>
-                                    <div className="w-12 h-1 bg-slate-100 mt-3 rounded-full overflow-hidden">
-                                        <div className="w-full h-full bg-indigo-500"></div>
-                                    </div>
-                                </div>
-                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                                    <div className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Approuvées</div>
-                                    <div className="text-3xl font-black text-emerald-600">
-                                        {history.filter(h => h.status === 'APPROVED').length}
-                                    </div>
-                                    <div className="w-12 h-1 bg-emerald-50 mt-3 rounded-full overflow-hidden">
-                                        <div className="h-full bg-emerald-500" style={{ width: `${(history.filter(h => h.status === 'APPROVED').length / (history.length || 1)) * 100}%` }}></div>
-                                    </div>
-                                </div>
-                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                                    <div className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">En Attente</div>
-                                    <div className="text-3xl font-black text-amber-600">
-                                        {history.filter(h => h.status === 'PENDING').length}
-                                    </div>
-                                    <div className="w-12 h-1 bg-amber-50 mt-3 rounded-full overflow-hidden">
-                                        <div className="h-full bg-amber-500" style={{ width: `${(history.filter(h => h.status === 'PENDING').length / (history.length || 1)) * 100}%` }}></div>
-                                    </div>
-                                </div>
-                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                                    <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Taux d'Approbation</div>
-                                    <div className="text-3xl font-black text-indigo-900">
-                                        {Math.round((history.filter(h => h.status === 'APPROVED').length / (history.filter(h => h.status !== 'PENDING').length || 1)) * 100)}%
-                                    </div>
-                                    <div className="w-12 h-1 bg-indigo-50 mt-3 rounded-full overflow-hidden">
-                                        <div className="h-full bg-indigo-500" style={{ width: `${(history.filter(h => h.status === 'APPROVED').length / (history.filter(h => h.status !== 'PENDING').length || 1)) * 100}%` }}></div>
-                                    </div>
-                                </div>
+                        {/* Quick Action bar */}
+                        <div className="mt-8 flex items-center justify-between border-t border-slate-50 pt-6">
+                            <div className="flex gap-2">
+                                <button onClick={exportToExcel} className="h-10 px-5 bg-emerald-50 text-emerald-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 border border-emerald-100 shadow-sm">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                    Format Excel
+                                </button>
+                                <button onClick={exportToPDF} className="h-10 px-5 bg-rose-50 text-rose-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all flex items-center gap-2 border border-rose-100 shadow-sm">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                    Format PDF
+                                </button>
                             </div>
 
-                            {/* Distribution par type (mini chart) */}
-                            <div className="lg:col-span-4 bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Répartition des types (jours)</div>
-                                <div className="space-y-3">
-                                    {typeStats.length > 0 ? typeStats.map((stat, idx) => (
-                                        <div key={idx} className="space-y-1">
-                                            <div className="flex justify-between text-[10px] font-bold">
-                                                <span className="text-slate-600">{stat.label}</span>
-                                                <span className="text-slate-400">{stat.value} j</span>
-                                            </div>
-                                            <div className="h-1.5 w-full bg-slate-50 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full bg-indigo-500`}
-                                                    style={{ width: `${(stat.value / (history.reduce((s, h) => s + h.duration, 0) || 1)) * 100}%` }}
-                                                ></div>
-                                            </div>
-                                        </div>
-                                    )) : (
-                                        <p className="text-xs text-slate-300 italic">Aucune donnée de répartition</p>
-                                    )}
-                                </div>
+                            <div className="flex items-center gap-4 text-slate-400 text-xs font-bold">
+                                <span>{history.length} résultats trouvés</span>
+                                <div className="h-4 w-px bg-slate-200"></div>
+                                <span className="text-indigo-600">Période : {getPeriodLabel(filters.period)}</span>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            {/* Notification */}
-            {notification && (
-                <div className={`fixed top-8 right-8 z-50 p-6 rounded-2xl shadow-2xl animate-slide-in-right ${notification.type === 'success' ? 'bg-emerald-500' :
-                    notification.type === 'error' ? 'bg-rose-500' : 'bg-blue-500'
-                    } text-white max-w-md`}>
-                    <div className="flex items-start gap-4">
-                        <div className="text-2xl">
-                            {notification.type === 'success' ? '✅' : notification.type === 'error' ? '❌' : 'ℹ️'}
+                    {/* Analytical Metrics */}
+                    <div className="p-8 bg-slate-50/50 border-t border-slate-100">
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                            {[
+                                { label: 'Volume Total', value: history.length, sub: 'Demandes traitées', color: 'indigo', icon: '📊' },
+                                { label: 'Approbations', value: history.filter(h => h.status === 'APPROVED').length, sub: 'Taux : ' + Math.round((history.filter(h => h.status === 'APPROVED').length / (history.filter(h => h.status !== 'PENDING').length || 1)) * 100) + '%', color: 'emerald', icon: '✅' },
+                                { label: 'En Instruction', value: history.filter(h => h.status === 'PENDING').length, sub: 'Action requise', color: 'amber', icon: '🕒' },
+                                { label: 'Impact RH', value: history.filter(h => h.status === 'APPROVED').reduce((sum, h) => sum + h.duration, 0), sub: 'Jours cumulés', color: 'rose', icon: '📈' }
+                            ].map((card, i) => (
+                                <div key={i} className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                    <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:scale-125 transition-transform duration-500 grayscale group-hover:grayscale-0`}>
+                                        <span className="text-4xl">{card.icon}</span>
+                                    </div>
+                                    <div className="relative z-10">
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{card.label}</p>
+                                        <p className={`text-3xl font-black text-slate-900 mb-1`}>{card.value}</p>
+                                        <p className="text-[10px] font-bold text-slate-500 bg-slate-50 inline-block px-2 py-0.5 rounded-full">{card.sub}</p>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                        <div className="flex-1">
-                            <p className="font-bold text-sm">{notification.message}</p>
-                        </div>
-                        <button
-                            onClick={() => setNotification(null)}
-                            className="text-white/80 hover:text-white transition-colors"
-                        >
-                            ✕
-                        </button>
                     </div>
                 </div>
-            )}
 
-            {/* Tableau de l'historique */}
-            <div className="max-w-7xl mx-auto">
-                <div className="bg-white rounded-[3rem] shadow-2xl shadow-slate-200/50 overflow-hidden">
+                {/* Table Section */}
+                <div className="bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden min-h-[400px]">
                     {loading ? (
-                        <div className="p-20 text-center">
-                            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className="text-slate-400 font-bold">Chargement de l'historique...</p>
+                        <div className="flex flex-col items-center justify-center p-24">
+                            <div className="relative w-16 h-16">
+                                <div className="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
+                                <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+                            </div>
+                            <p className="mt-6 text-xs font-black text-slate-400 uppercase tracking-widest animate-pulse">Synchronisation...</p>
                         </div>
                     ) : history.length === 0 ? (
-                        <div className="p-20 text-center">
-                            <div className="text-6xl mb-4">📋</div>
-                            <p className="text-xl font-bold text-slate-400">Aucune demande trouvée</p>
-                            <p className="text-sm text-slate-400 mt-2">Modifiez les filtres pour voir plus de résultats</p>
+                        <div className="flex flex-col items-center justify-center p-24 text-center">
+                            <div className="w-24 h-24 bg-slate-50 rounded-[2.5rem] flex items-center justify-center mb-6">
+                                <svg className="w-10 h-10 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            </div>
+                            <h3 className="text-lg font-black text-slate-900 tracking-tight">Aucune donnée correspondante</h3>
+                            <p className="text-sm text-slate-400 font-medium max-w-xs mt-2">Affinez vos filtres ou changez la période pour afficher les enregistrements.</p>
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead className="bg-slate-900 text-white">
-                                    <tr>
-                                        {currentUser.role !== UserRole.EMPLOYEE && (
-                                            <th className="px-6 py-4 text-left text-xs font-black uppercase tracking-wider">Employé</th>
-                                        )}
-                                        <th className="px-6 py-4 text-left text-xs font-black uppercase tracking-wider">Type</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black uppercase tracking-wider">Début</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black uppercase tracking-wider">Fin</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black uppercase tracking-wider">Durée</th>
-                                        <th className="px-6 py-4 text-center text-xs font-black uppercase tracking-wider">Statut</th>
-                                        {currentUser.role !== UserRole.EMPLOYEE && (
-                                            <th className="px-6 py-4 text-center text-xs font-black uppercase tracking-wider">Solde</th>
-                                        )}
-                                        <th className="px-6 py-4 text-center text-xs font-black uppercase tracking-wider">Actions</th>
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-slate-50 border-b border-slate-100">
+                                    <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">
+                                        {currentUser.role !== UserRole.EMPLOYEE && <th className="px-8 py-5">Collaborateur</th>}
+                                        <th className="px-8 py-5">Catégorie</th>
+                                        <th className="px-8 py-5">Calendrier</th>
+                                        <th className="px-8 py-5 text-center">Durée</th>
+                                        <th className="px-8 py-5">Statut</th>
+                                        <th className="px-8 py-5 text-right whitespace-nowrap">Actions RH</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-slate-50">
                                     {history.map((leave) => {
                                         const balance = getBalance(leave.userId);
                                         return (
-                                            <tr key={leave.id} className="hover:bg-slate-50 transition-colors">
+                                            <tr key={leave.id} className="group hover:bg-slate-50/50 transition-colors">
                                                 {currentUser.role !== UserRole.EMPLOYEE && (
-                                                    <td className="px-6 py-4">
-                                                        <div className="font-bold text-sm text-slate-900">{leave.employeeName}</div>
-                                                        <div className="text-xs text-slate-400">{leave.employeeDepartment}</div>
+                                                    <td className="px-8 py-5">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-xs font-black text-indigo-600">
+                                                                {leave.employeeName.substring(0, 2).toUpperCase()}
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm font-black text-slate-900 tracking-tight leading-none mb-1">{leave.employeeName}</p>
+                                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{leave.employeeDepartment}</p>
+                                                            </div>
+                                                        </div>
                                                     </td>
                                                 )}
-                                                <td className="px-6 py-4">
+                                                <td className="px-8 py-5">
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-xl">{getLeaveTypeIcon(leave.type)}</span>
-                                                        <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter">
-                                                            {getLeaveTypeLabel(leave.type)}
-                                                        </span>
+                                                        <span className="text-xs font-bold text-slate-600">{getLeaveTypeLabel(leave.type).split(' ')[1] || getLeaveTypeLabel(leave.type)}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 text-center text-xs font-bold text-slate-500">
-                                                    {new Date(leave.startDate).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                                <td className="px-8 py-5">
+                                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-50 rounded-lg px-2 py-1.5 w-fit border border-slate-100">
+                                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                                        <span>{new Date(leave.startDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} — {new Date(leave.endDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</span>
+                                                    </div>
                                                 </td>
-                                                <td className="px-6 py-4 text-center text-xs font-bold text-slate-500">
-                                                    {new Date(leave.endDate).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className="inline-block bg-indigo-100 text-indigo-700 px-3 py-1 rounded-lg text-sm font-bold">
+                                                <td className="px-8 py-5 text-center">
+                                                    <span className="inline-flex h-8 w-12 items-center justify-center bg-indigo-950 text-white rounded-lg text-xs font-black ring-4 ring-indigo-50">
                                                         {leave.duration}j
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-4 text-center">
+                                                <td className="px-8 py-5">
                                                     {getStatusBadge(leave.status)}
                                                 </td>
-                                                {currentUser.role !== UserRole.EMPLOYEE && balance && (
-                                                    <td className="px-6 py-4 text-center">
-                                                        <div className="text-sm font-bold text-emerald-600">{balance.remaining}j</div>
-                                                        <div className="text-xs text-slate-400">sur {balance.totalAccrued}j</div>
-                                                    </td>
-                                                )}
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className="flex items-center justify-center gap-1">
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedLeave(leave);
-                                                                setShowDetailsModal(true);
-                                                            }}
-                                                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                                                            title="Voir détails"
-                                                        >
-                                                            <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                            </svg>
+                                                <td className="px-8 py-5 text-right">
+                                                    <div className="flex items-center justify-end gap-1 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button onClick={() => { setSelectedLeave(leave); setShowDetailsModal(true); }} className="w-9 h-9 md:w-auto md:px-4 bg-white border border-slate-100 rounded-xl shadow-sm text-slate-500 hover:text-indigo-600 hover:border-indigo-100 hover:bg-indigo-50 transition-all flex items-center justify-center gap-2">
+                                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                            <span className="hidden md:block text-[10px] font-black uppercase tracking-widest">Détails</span>
                                                         </button>
                                                         {leave.status === LeaveStatus.PENDING && (leave.userId === currentUser.id || currentUser.role === UserRole.ADMIN) && (
-                                                            <button
-                                                                onClick={() => handleCancelRequest(leave.id)}
-                                                                className="p-2 hover:bg-rose-50 rounded-lg transition-colors group/cancel"
-                                                                title="Annuler la demande"
-                                                            >
-                                                                <svg className="w-5 h-5 text-slate-400 group-hover/cancel:text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                                </svg>
+                                                            <button onClick={() => handleCancelRequest(leave.id)} className="w-9 h-9 bg-rose-50 border border-rose-100 rounded-xl shadow-sm text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center">
+                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                                                             </button>
                                                         )}
                                                     </div>
@@ -822,80 +730,87 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
 
             {/* Modal de détails */}
             {showDetailsModal && selectedLeave && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-8">
-                    <div className="bg-white rounded-[3rem] shadow-2xl max-w-2xl w-full overflow-hidden">
-                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-8 text-white">
-                            <h2 className="text-2xl font-black">Détails de la Demande</h2>
-                            <p className="text-blue-100 mt-1 font-medium">{getLeaveTypeLabel(selectedLeave.type)}</p>
+                <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md flex items-center justify-center z-50 p-4 md:p-8 animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[3rem] shadow-[0_30px_100px_rgba(0,0,0,0.2)] max-w-2xl w-full overflow-hidden border border-white/20 animate-in zoom-in-95 duration-300">
+                        <div className="bg-slate-900 p-8 md:p-10 text-white relative">
+                            <div className="absolute top-0 right-0 p-8 opacity-20">
+                                <span className="text-6xl">{getLeaveTypeIcon(selectedLeave.type)}</span>
+                            </div>
+                            <div className="relative z-10">
+                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full backdrop-blur-md border border-white/10 mb-4">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">Fiche de de demande</span>
+                                </div>
+                                <h2 className="text-3xl md:text-4xl font-black tracking-tight">{getLeaveTypeLabel(selectedLeave.type)}</h2>
+                                <p className="text-slate-400 mt-2 font-medium flex items-center gap-2">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                    {selectedLeave.employeeName} — {selectedLeave.employeeDepartment}
+                                </p>
+                            </div>
                         </div>
-                        <div className="p-8 space-y-6">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="p-4 bg-slate-50 rounded-2xl">
-                                    <div className="text-xs font-black text-slate-400 uppercase mb-1">Date de début</div>
-                                    <div className="text-lg font-black text-slate-900">
-                                        {new Date(selectedLeave.startDate).toLocaleDateString('fr-FR', {
-                                            weekday: 'long',
-                                            year: 'numeric',
-                                            month: 'long',
-                                            day: 'numeric'
-                                        })}
+
+                        <div className="p-8 md:p-10 space-y-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-indigo-200 transition-colors">
+                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Période d'absence</div>
+                                    <div className="text-sm font-bold text-slate-900 leading-relaxed">
+                                        Du {new Date(selectedLeave.startDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}<br />
+                                        Au {new Date(selectedLeave.endDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
                                     </div>
                                 </div>
-                                <div className="p-4 bg-slate-50 rounded-2xl">
-                                    <div className="text-xs font-black text-slate-400 uppercase mb-1">Date de fin</div>
-                                    <div className="text-lg font-black text-slate-900">
-                                        {new Date(selectedLeave.endDate).toLocaleDateString('fr-FR', {
-                                            weekday: 'long',
-                                            year: 'numeric',
-                                            month: 'long',
-                                            day: 'numeric'
-                                        })}
+                                <div className="p-5 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex flex-col justify-center">
+                                    <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Durée du séjour</div>
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="text-4xl font-black text-indigo-600">{selectedLeave.duration}</span>
+                                        <span className="text-sm font-bold text-indigo-400 uppercase">Jours ouvrés</span>
                                     </div>
                                 </div>
-                                <div className="p-4 bg-indigo-50 rounded-2xl">
-                                    <div className="text-xs font-black text-indigo-600 uppercase mb-1">Durée</div>
-                                    <div className="text-2xl font-black text-indigo-700">{selectedLeave.duration} jours</div>
-                                </div>
-                                <div className="p-4 bg-slate-50 rounded-2xl">
-                                    <div className="text-xs font-black text-slate-400 uppercase mb-1">Statut</div>
+                            </div>
+
+                            <div className="space-y-4">
+                                {selectedLeave.comment && (
+                                    <div className="p-5 bg-slate-50 border border-slate-100 rounded-2xl">
+                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Note de l'employé</div>
+                                        <p className="text-sm text-slate-600 font-medium italic">"{selectedLeave.comment}"</p>
+                                    </div>
+                                )}
+
+                                {selectedLeave.managerComment && (
+                                    <div className="p-5 bg-amber-50 border border-amber-100 rounded-2xl">
+                                        <div className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-2">Décision Management</div>
+                                        <p className="text-sm text-amber-900 font-semibold">{selectedLeave.managerComment}</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex items-center justify-between pt-6 border-t border-slate-100">
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">État de validation</span>
                                     <div className="mt-1">{getStatusBadge(selectedLeave.status)}</div>
                                 </div>
+                                <button
+                                    onClick={() => setShowDetailsModal(false)}
+                                    className="px-8 py-4 bg-slate-950 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-lg hover:shadow-indigo-200"
+                                >
+                                    Fermer la vue
+                                </button>
                             </div>
-
-                            {selectedLeave.comment && (
-                                <div className="p-4 bg-blue-50 rounded-2xl">
-                                    <div className="text-xs font-black text-blue-600 uppercase mb-2">Commentaire</div>
-                                    <p className="text-sm text-blue-900">{selectedLeave.comment}</p>
-                                </div>
-                            )}
-
-                            {selectedLeave.managerComment && (
-                                <div className="p-4 bg-amber-50 rounded-2xl">
-                                    <div className="text-xs font-black text-amber-600 uppercase mb-2">Commentaire du Manager</div>
-                                    <p className="text-sm text-amber-900">{selectedLeave.managerComment}</p>
-                                </div>
-                            )}
-
-                            <div className="p-4 bg-slate-50 rounded-2xl">
-                                <div className="text-xs font-black text-slate-400 uppercase mb-2">Informations</div>
-                                <div className="space-y-1 text-sm text-slate-600">
-                                    <p><strong>Demandé le :</strong> {new Date(selectedLeave.createdAt).toLocaleDateString('fr-FR')}</p>
-                                    {currentUser.role !== UserRole.EMPLOYEE && (
-                                        <>
-                                            <p><strong>Employé :</strong> {selectedLeave.employeeName}</p>
-                                            <p><strong>Département :</strong> {selectedLeave.employeeDepartment}</p>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={() => setShowDetailsModal(false)}
-                                className="w-full px-6 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all"
-                            >
-                                Fermer
-                            </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Notification system */}
+            {notification && (
+                <div className={`fixed bottom-8 right-8 z-[100] p-5 rounded-[2rem] shadow-2xl border-2 flex items-center gap-4 animate-in slide-in-from-bottom-10 fade-in duration-500 min-w-[320px] backdrop-blur-xl ${notification.type === 'success'
+                        ? 'bg-emerald-500/95 text-white border-emerald-400'
+                        : 'bg-rose-500/95 text-white border-rose-400'
+                    }`}>
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-xl">
+                        {notification.type === 'success' ? '✨' : '⚠️'}
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest opacity-80">{notification.type === 'success' ? 'Succès' : 'Attention'}</p>
+                        <p className="text-sm font-bold tracking-tight">{notification.message}</p>
                     </div>
                 </div>
             )}
