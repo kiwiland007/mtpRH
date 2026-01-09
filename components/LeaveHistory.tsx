@@ -16,6 +16,7 @@ interface HistoryFilters {
     status?: LeaveStatus | 'all';
     searchTerm: string;
     employeeId?: string;
+    department?: string;
 }
 
 interface EmployeeBalance {
@@ -37,7 +38,8 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
         leaveType: 'all',
         status: 'all',
         searchTerm: '',
-        employeeId: currentUser.role === UserRole.EMPLOYEE ? currentUser.id : undefined
+        employeeId: currentUser.role === UserRole.EMPLOYEE ? currentUser.id : undefined,
+        department: 'all'
     });
     const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
     const [selectedLeave, setSelectedLeave] = useState<LeaveRequest | null>(null);
@@ -129,6 +131,13 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                 );
             }
 
+            // Filtre par département
+            if (filters.department && filters.department !== 'all') {
+                mappedData = mappedData.filter(leave =>
+                    leave.employeeDepartment === filters.department
+                );
+            }
+
             setHistory(mappedData);
         } catch (error: any) {
             showNotification('error', 'Erreur lors du chargement de l\'historique: ' + error.message);
@@ -149,6 +158,23 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
             setEmployees(data || []);
         } catch (error: any) {
             console.error('Erreur chargement employés:', error);
+        }
+    };
+
+    const handleCancelRequest = async (requestId: string) => {
+        if (!window.confirm('Voulez-vous vraiment annuler cette demande ?')) return;
+
+        try {
+            const { error } = await supabaseClient
+                .from('leave_requests')
+                .update({ status: LeaveStatus.CANCELLED })
+                .eq('id', requestId);
+
+            if (error) throw error;
+            showNotification('success', 'Demande annulée avec succès');
+            loadData();
+        } catch (error: any) {
+            showNotification('error', 'Erreur lors de l\'annulation: ' + error.message);
         }
     };
 
@@ -400,6 +426,30 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
         return balances.find(b => b.userId === userId);
     };
 
+    const getLeaveTypeIcon = (type: LeaveType) => {
+        switch (type) {
+            case 'ANNUAL': return '🏖️';
+            case 'SICK': return '🤒';
+            case 'MATERNITY': return '👶';
+            case 'EXCEPTIONAL': return '🌟';
+            case 'RTT': return '⏰';
+            default: return '📄';
+        }
+    };
+
+    // Préparation des données pour le graphique
+    const typeStats = history.reduce((acc: any[], curr) => {
+        const existing = acc.find(a => a.name === curr.type);
+        if (existing) {
+            existing.value += curr.duration;
+        } else {
+            acc.push({ name: curr.type, label: getLeaveTypeLabel(curr.type), value: curr.duration });
+        }
+        return acc;
+    }, []);
+
+    const departments = Array.from(new Set(employees.map(e => e.department))).filter(Boolean);
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-8">
             {/* Header */}
@@ -488,12 +538,28 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                                 <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Recherche</label>
                                 <input
                                     type="text"
-                                    placeholder="Nom, département..."
+                                    placeholder="Nom, commentaire..."
                                     value={filters.searchTerm}
                                     onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
                                     className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-medium focus:border-blue-500 outline-none transition-all"
                                 />
                             </div>
+
+                            {currentUser.role !== UserRole.EMPLOYEE && (
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black text-slate-400 uppercase tracking-wider">Département</label>
+                                    <select
+                                        value={filters.department || 'all'}
+                                        onChange={(e) => setFilters({ ...filters, department: e.target.value })}
+                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl py-3 px-4 text-sm font-bold focus:border-blue-500 outline-none transition-all"
+                                    >
+                                        <option value="all">Tous les départements</option>
+                                        {departments.map((dept: any) => (
+                                            <option key={dept} value={dept}>{dept}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                         </div>
 
                         {/* Période personnalisée */}
@@ -555,28 +621,66 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                     </div>
 
                     {/* Statistiques */}
-                    <div className="p-8 bg-gradient-to-r from-slate-50 to-blue-50">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">Total Demandes</div>
-                                <div className="text-3xl font-black text-slate-900">{history.length}</div>
-                            </div>
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-emerald-600 uppercase tracking-wider mb-2">Approuvées</div>
-                                <div className="text-3xl font-black text-emerald-600">
-                                    {history.filter(h => h.status === 'APPROVED').length}
+                    {/* Statistiques et Graphique */}
+                    <div className="p-8 bg-gradient-to-r from-slate-50 to-blue-50 border-t border-slate-100">
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                            <div className="lg:col-span-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 group-hover:text-indigo-600 transition-colors">Total Demandes</div>
+                                    <div className="text-3xl font-black text-slate-900">{history.length}</div>
+                                    <div className="w-12 h-1 bg-slate-100 mt-3 rounded-full overflow-hidden">
+                                        <div className="w-full h-full bg-indigo-500"></div>
+                                    </div>
+                                </div>
+                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                    <div className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Approuvées</div>
+                                    <div className="text-3xl font-black text-emerald-600">
+                                        {history.filter(h => h.status === 'APPROVED').length}
+                                    </div>
+                                    <div className="w-12 h-1 bg-emerald-50 mt-3 rounded-full overflow-hidden">
+                                        <div className="h-full bg-emerald-500" style={{ width: `${(history.filter(h => h.status === 'APPROVED').length / (history.length || 1)) * 100}%` }}></div>
+                                    </div>
+                                </div>
+                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                    <div className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">En Attente</div>
+                                    <div className="text-3xl font-black text-amber-600">
+                                        {history.filter(h => h.status === 'PENDING').length}
+                                    </div>
+                                    <div className="w-12 h-1 bg-amber-50 mt-3 rounded-full overflow-hidden">
+                                        <div className="h-full bg-amber-500" style={{ width: `${(history.filter(h => h.status === 'PENDING').length / (history.length || 1)) * 100}%` }}></div>
+                                    </div>
+                                </div>
+                                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                    <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Taux d'Approbation</div>
+                                    <div className="text-3xl font-black text-indigo-900">
+                                        {Math.round((history.filter(h => h.status === 'APPROVED').length / (history.filter(h => h.status !== 'PENDING').length || 1)) * 100)}%
+                                    </div>
+                                    <div className="w-12 h-1 bg-indigo-50 mt-3 rounded-full overflow-hidden">
+                                        <div className="h-full bg-indigo-500" style={{ width: `${(history.filter(h => h.status === 'APPROVED').length / (history.filter(h => h.status !== 'PENDING').length || 1)) * 100}%` }}></div>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-amber-600 uppercase tracking-wider mb-2">En Attente</div>
-                                <div className="text-3xl font-black text-amber-600">
-                                    {history.filter(h => h.status === 'PENDING').length}
-                                </div>
-                            </div>
-                            <div className="bg-white rounded-2xl p-6 shadow-lg">
-                                <div className="text-xs font-black text-blue-600 uppercase tracking-wider mb-2">Jours Totaux</div>
-                                <div className="text-3xl font-black text-blue-600">
-                                    {history.filter(h => h.status === 'APPROVED').reduce((sum, h) => sum + h.duration, 0)}
+
+                            {/* Distribution par type (mini chart) */}
+                            <div className="lg:col-span-4 bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Répartition des types (jours)</div>
+                                <div className="space-y-3">
+                                    {typeStats.length > 0 ? typeStats.map((stat, idx) => (
+                                        <div key={idx} className="space-y-1">
+                                            <div className="flex justify-between text-[10px] font-bold">
+                                                <span className="text-slate-600">{stat.label}</span>
+                                                <span className="text-slate-400">{stat.value} j</span>
+                                            </div>
+                                            <div className="h-1.5 w-full bg-slate-50 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full bg-indigo-500`}
+                                                    style={{ width: `${(stat.value / (history.reduce((s, h) => s + h.duration, 0) || 1)) * 100}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    )) : (
+                                        <p className="text-xs text-slate-300 italic">Aucune donnée de répartition</p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -651,15 +755,18 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                                                     </td>
                                                 )}
                                                 <td className="px-6 py-4">
-                                                    <span className="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold">
-                                                        {getLeaveTypeLabel(leave.type)}
-                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xl">{getLeaveTypeIcon(leave.type)}</span>
+                                                        <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter">
+                                                            {getLeaveTypeLabel(leave.type)}
+                                                        </span>
+                                                    </div>
                                                 </td>
-                                                <td className="px-6 py-4 text-center text-sm font-medium text-slate-600">
-                                                    {new Date(leave.startDate).toLocaleDateString('fr-FR')}
+                                                <td className="px-6 py-4 text-center text-xs font-bold text-slate-500">
+                                                    {new Date(leave.startDate).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                                                 </td>
-                                                <td className="px-6 py-4 text-center text-sm font-medium text-slate-600">
-                                                    {new Date(leave.endDate).toLocaleDateString('fr-FR')}
+                                                <td className="px-6 py-4 text-center text-xs font-bold text-slate-500">
+                                                    {new Date(leave.endDate).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span className="inline-block bg-indigo-100 text-indigo-700 px-3 py-1 rounded-lg text-sm font-bold">
@@ -676,19 +783,32 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                                                     </td>
                                                 )}
                                                 <td className="px-6 py-4 text-center">
-                                                    <button
-                                                        onClick={() => {
-                                                            setSelectedLeave(leave);
-                                                            setShowDetailsModal(true);
-                                                        }}
-                                                        className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                                                        title="Voir détails"
-                                                    >
-                                                        <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                        </svg>
-                                                    </button>
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedLeave(leave);
+                                                                setShowDetailsModal(true);
+                                                            }}
+                                                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                                                            title="Voir détails"
+                                                        >
+                                                            <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                            </svg>
+                                                        </button>
+                                                        {leave.status === LeaveStatus.PENDING && (leave.userId === currentUser.id || currentUser.role === UserRole.ADMIN) && (
+                                                            <button
+                                                                onClick={() => handleCancelRequest(leave.id)}
+                                                                className="p-2 hover:bg-rose-50 rounded-lg transition-colors group/cancel"
+                                                                title="Annuler la demande"
+                                                            >
+                                                                <svg className="w-5 h-5 text-slate-400 group-hover/cancel:text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
