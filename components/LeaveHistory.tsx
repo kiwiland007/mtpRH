@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, LeaveRequest, LeaveType, LeaveStatus } from '../types';
 import { calculateBusinessDays } from '../utils/calculations';
 
+import {
+    EditRequestModal,
+} from './admin';
+
 interface LeaveHistoryProps {
     currentUser: User;
     supabaseClient: any;
@@ -44,6 +48,7 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
     const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
     const [selectedLeave, setSelectedLeave] = useState<LeaveRequest | null>(null);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [editModalData, setEditModalData] = useState<any | null>(null);
 
     useEffect(() => {
         loadData();
@@ -158,6 +163,48 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
             setEmployees(data || []);
         } catch (error: any) {
             console.error('Erreur chargement employés:', error);
+        }
+    };
+
+    const handleEditRequest = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editModalData) return;
+
+        try {
+            const businessDays = calculateBusinessDays(editModalData.start_date, editModalData.end_date);
+            const { error } = await supabaseClient
+                .from('leave_requests')
+                .update({
+                    type: editModalData.type,
+                    start_date: editModalData.start_date,
+                    end_date: editModalData.end_date,
+                    duration: businessDays
+                })
+                .eq('id', editModalData.id);
+
+            if (error) throw error;
+            showNotification('success', 'Demande ajustée avec succès');
+            setEditModalData(null);
+            loadData();
+        } catch (error: any) {
+            showNotification('error', 'Erreur lors de l\'ajustement: ' + error.message);
+        }
+    };
+
+    const handleDeleteRequest = async (requestId: string) => {
+        if (!window.confirm('Action critique : Voulez-vous vraiment supprimer définitivement cet enregistrement ?')) return;
+
+        try {
+            const { error } = await supabaseClient
+                .from('leave_requests')
+                .delete()
+                .eq('id', requestId);
+
+            if (error) throw error;
+            showNotification('success', 'Enregistrement supprimé');
+            loadData();
+        } catch (error: any) {
+            showNotification('error', 'Erreur de suppression: ' + error.message);
         }
     };
 
@@ -711,8 +758,33 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                                                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                                             <span className="hidden md:block text-[10px] font-black uppercase tracking-widest">Détails</span>
                                                         </button>
-                                                        {leave.status === LeaveStatus.PENDING && (leave.userId === currentUser.id || currentUser.role === UserRole.ADMIN) && (
-                                                            <button onClick={() => handleCancelRequest(leave.id)} className="w-9 h-9 bg-rose-50 border border-rose-100 rounded-xl shadow-sm text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center">
+
+                                                        {currentUser.role === UserRole.ADMIN && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => setEditModalData({
+                                                                        id: leave.id,
+                                                                        type: leave.type,
+                                                                        start_date: leave.startDate,
+                                                                        end_date: leave.endDate
+                                                                    })}
+                                                                    className="w-9 h-9 bg-indigo-50 border border-indigo-100 rounded-xl shadow-sm text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center"
+                                                                    title="Ajuster la demande"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeleteRequest(leave.id)}
+                                                                    className="w-9 h-9 bg-red-50 border border-red-100 rounded-xl shadow-sm text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center"
+                                                                    title="Suppression définitive"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                                </button>
+                                                            </>
+                                                        )}
+
+                                                        {leave.status === LeaveStatus.PENDING && (leave.userId === currentUser.id || (currentUser.role === UserRole.ADMIN && leave.status === LeaveStatus.PENDING)) && (
+                                                            <button onClick={() => handleCancelRequest(leave.id)} className="w-9 h-9 bg-rose-50 border border-rose-100 rounded-xl shadow-sm text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center" title="Annuler">
                                                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                                                             </button>
                                                         )}
@@ -727,6 +799,13 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                     )}
                 </div>
             </div>
+
+            {/* Modals */}
+            <EditRequestModal
+                editRequestModal={editModalData}
+                setEditRequestModal={setEditModalData}
+                onEditRequest={handleEditRequest}
+            />
 
             {/* Modal de détails */}
             {showDetailsModal && selectedLeave && (
