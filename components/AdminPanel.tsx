@@ -195,38 +195,72 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
   };
 
   const handleDecision = async () => {
-    if (!decisionModal) return;
+    if (!decisionModal || !decisionModal.id) return;
+
+    // Capturer l'état actuel pour éviter les effets de bord
+    const targetId = decisionModal.id;
+    const targetAction = decisionModal.action;
+    const comment = managerComment;
+
     try {
       setLoading(true);
-      const { error } = await supabase.from('leave_requests').update({
-        status: decisionModal.action,
-        manager_comment: managerComment
-      }).eq('id', decisionModal.id);
 
-      if (error) throw error;
+      // 1. Mise à jour de la demande principale
+      const { data: updatedReq, error: updateError } = await supabase
+        .from('leave_requests')
+        .update({
+          status: targetAction,
+          manager_comment: comment
+        })
+        .eq('id', targetId)
+        .select()
+        .single();
 
-      // Log d'audit
-      await auditLog('DECISION_REQUEST', { id: decisionModal.id, action: decisionModal.action });
+      if (updateError) throw updateError;
 
-      // Envoi de notification (non bloquant pour le flux principal)
-      const targetRequest = allRequests.find(r => r.id === decisionModal.id);
-      if (targetRequest) {
-        notificationService.createNotification(
-          targetRequest.user_id,
-          `Demande ${decisionModal.action === LeaveStatus.APPROVED ? 'approuvée' : 'refusée'}`,
-          `Votre demande pour la période du ${new Date(targetRequest.start_date).toLocaleDateString()} a été traitée.`,
-          decisionModal.action === LeaveStatus.APPROVED ? 'success' : 'error'
-        ).catch(e => console.warn("Erreur notification (silencieuse):", e));
+      // 2. Synchronisation avec l'historique (Critique pour les calculs de solde)
+      if (targetAction === LeaveStatus.APPROVED && updatedReq) {
+        try {
+          const fiscalYear = new Date(updatedReq.start_date).getFullYear();
+          await supabase.from('leave_history').upsert({
+            user_id: updatedReq.user_id,
+            leave_request_id: updatedReq.id,
+            leave_type: updatedReq.type,
+            start_date: updatedReq.start_date,
+            end_date: updatedReq.end_date,
+            duration: updatedReq.duration,
+            status: LeaveStatus.APPROVED,
+            fiscal_year: fiscalYear,
+            manager_comment: comment,
+            approved_by: user?.id,
+            approved_at: new Date().toISOString()
+          }, { onConflict: 'leave_request_id' });
+        } catch (historyErr) {
+          console.error("Erreur sync historique:", historyErr);
+        }
       }
 
+      // 3. Log d'audit
+      await auditLog('DECISION_REQUEST', { id: targetId, action: targetAction });
+
+      // 4. Notification (Optionnel/Silencieux)
+      if (updatedReq) {
+        notificationService.createNotification(
+          updatedReq.user_id,
+          `Demande ${targetAction === LeaveStatus.APPROVED ? 'approuvée' : 'refusée'}`,
+          `Votre demande (${updatedReq.type}) du ${new Date(updatedReq.start_date).toLocaleDateString()} a été traitée.`,
+          targetAction === LeaveStatus.APPROVED ? 'success' : 'error'
+        ).catch(() => { });
+      }
+
+      // 5. Nettoyage et rafraîchissement
       setDecisionModal(null);
       setManagerComment('');
-
-      // Rafraîchissement impératif
       await fetchData();
 
-      if (onNotification) onNotification(`Demande traitée avec succès`);
+      if (onNotification) onNotification(`Action confirmée : Demande ${targetAction === LeaveStatus.APPROVED ? 'approuvée' : 'refusée'}`);
     } catch (err: any) {
+      console.error("Erreur validation:", err);
       if (onNotification) onNotification(`Erreur critique: ${err.message}`);
     } finally {
       setLoading(false);
