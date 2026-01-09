@@ -290,10 +290,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
 
   const handleAdminCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newAdminRequest.userId || !newAdminRequest.startDate) {
+      if (onNotification) onNotification("Veuillez remplir les champs obligatoires");
+      return;
+    }
+
     try {
       setLoading(true);
       const finalDuration = Number(newAdminRequest.duration) || calculateBusinessDays(newAdminRequest.startDate, newAdminRequest.isHalfDay ? newAdminRequest.startDate : newAdminRequest.endDate);
-      const { error } = await supabase.from('leave_requests').insert([{
+
+      const { data: newReq, error } = await supabase.from('leave_requests').insert([{
         user_id: newAdminRequest.userId,
         type: newAdminRequest.type,
         start_date: newAdminRequest.startDate,
@@ -301,14 +307,35 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
         status: LeaveStatus.APPROVED,
         duration: finalDuration,
         comment: newAdminRequest.comment || 'Créé par l\'administrateur'
-      }]);
+      }]).select().single();
+
       if (error) throw error;
-      await auditLog('CREATE_REQUEST_ADMIN', { user_id: newAdminRequest.userId });
+
+      // Synchronisation vers l'historique car le statut est DIRECTEMENT 'APPROVED'
+      if (newReq) {
+        const fiscalYear = new Date(newReq.start_date).getFullYear();
+        await supabase.from('leave_history').upsert({
+          user_id: newReq.user_id,
+          leave_request_id: newReq.id,
+          leave_type: newReq.type,
+          start_date: newReq.start_date,
+          end_date: newReq.end_date,
+          duration: newReq.duration,
+          status: LeaveStatus.APPROVED,
+          fiscal_year: fiscalYear,
+          manager_comment: 'Créé par l\'administrateur',
+          approved_by: user?.id,
+          approved_at: new Date().toISOString()
+        }, { onConflict: 'leave_request_id' }).catch(err => console.error("Sync history failed:", err));
+      }
+
+      await auditLog('CREATE_REQUEST_ADMIN', { user_id: newAdminRequest.userId, duration: finalDuration });
       setIsCreatingRequest(false);
       setNewAdminRequest({ userId: '', type: LeaveType.ANNUAL, startDate: '', endDate: '', comment: '', duration: 0, isHalfDay: false });
-      fetchData();
-      if (onNotification) onNotification("Demande créée avec succès");
+      await fetchData();
+      if (onNotification) onNotification("Demande créée et solde mis à jour");
     } catch (e: any) {
+      console.error("Erreur création admin:", e);
       if (onNotification) onNotification(`Erreur création: ${e.message}`);
     } finally {
       setLoading(false);
