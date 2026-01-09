@@ -401,8 +401,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
         <div className="flex bg-slate-100 p-1.5 rounded-2xl w-fit flex-wrap gap-1">
           <button onClick={() => setView('overview')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'overview' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Analytique</button>
           <button onClick={() => setView('requests')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'requests' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Validations ({stats.pending})</button>
-          <button onClick={() => setView('history')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'history' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Historique</button>
-          <button onClick={() => setView('reports')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'reports' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Reports</button>
           <button onClick={() => setView('users')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'users' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Effectifs</button>
           <button onClick={() => setView('logs')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'logs' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Logs</button>
           <button onClick={() => setView('settings')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${view === 'settings' ? 'bg-white text-indigo-900 shadow-sm' : 'text-slate-500'}`}>Paramètres</button>
@@ -508,135 +506,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
       )
       }
 
-      {/* History View */}
-      {
-        view === 'history' && (
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in">
-            <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-6">
-              <div>
-                <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Historique des Congés</h3>
-                <p className="text-slate-500 text-sm mt-2">Consultez l'historique complet des demandes.</p>
-              </div>
-              <div className="flex gap-4">
-                <input
-                  placeholder="Rechercher un employé..."
-                  className="bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-indigo-500"
-                  value={historyFilter.employee}
-                  onChange={e => setHistoryFilter({ ...historyFilter, employee: e.target.value })}
-                />
-                <select
-                  className="bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none"
-                  value={historyFilter.status}
-                  onChange={e => setHistoryFilter({ ...historyFilter, status: e.target.value })}
-                >
-                  <option value="ALL">Tous les statuts</option>
-                  <option value={LeaveStatus.APPROVED}>Approuvé</option>
-                  <option value={LeaveStatus.REJECTED}>Refusé</option>
-                  <option value={LeaveStatus.PENDING}>En attente</option>
-                </select>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 border-b border-slate-100">
-                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4">Collaborateur</th>
-                    <th className="px-6 py-4">Type</th>
-                    <th className="px-6 py-4 text-center">Durée</th>
-                    <th className="px-6 py-4 text-center">Statut</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
-                  {allRequests
-                    .filter(r => {
-                      if (historyFilter.status !== 'ALL' && r.status !== historyFilter.status) return false;
-                      if (historyFilter.employee && !r.profiles?.full_name.toLowerCase().includes(historyFilter.employee.toLowerCase())) return false;
-                      return true;
-                    })
-                    .map(req => (
-                      <tr key={req.id} className="hover:bg-slate-50 transition-all">
-                        <td className="px-6 py-4 font-mono text-xs text-slate-500">{new Date(req.created_at).toLocaleDateString('fr-FR')}</td>
-                        <td className="px-6 py-4 font-bold text-slate-700">{req.profiles?.full_name || 'Inconnu'}</td>
-                        <td className="px-6 py-4 font-medium text-slate-600">{req.type}</td>
-                        <td className="px-6 py-4 text-center font-bold text-slate-700">
-                          {req.duration === 0.5 ? '0,5 jour' : `${req.duration} ${req.duration > 1 ? 'jours' : 'jour'}`}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${req.status === LeaveStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' :
-                            req.status === LeaveStatus.REJECTED ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
-                            }`}>
-                            {req.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      }
-
-      {/* Reports View */}
-      {
-        view === 'reports' && (
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
-            <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-6">Gestion des Reports de Solde</h3>
-            <p className="text-slate-500 mb-8 max-w-3xl">
-              Le tableau ci-dessous présente une estimation des soldes à reporter.
-              Calcul basé sur : (Années d'ancienneté × 18 jours) - (Jours consommés).
-              Cette vue permet de valider les reports annuels.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {dbUsers.map(u => {
-                // Recalculate stats using the detailed analysis
-                const consumed = allRequests.filter(r => r.user_id === u.id && r.status === LeaveStatus.APPROVED).reduce((sum, r) => sum + Number(r.duration), 0);
-                const stats = calculateBalanceAnalysis(u.hire_date, consumed, u.balance_adjustment);
-
-                return (
-                  <div key={u.id} className="bg-slate-50 rounded-2xl p-6 border border-slate-100 hover:border-indigo-200 transition-all group">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h4 className="font-bold text-slate-900">{u.full_name}</h4>
-                        <p className="text-xs text-slate-500">{u.department}</p>
-                      </div>
-                      <span className={`px-2 py-1 rounded-lg text-[10px] font-black ${stats.carryOver > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                        {stats.carryOver > 0 ? 'REPORT N-1' : 'A JOUR'}
-                      </span>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-500">Droit Annuel</span>
-                        <span className="font-bold">{stats.currentAnnualRate} j</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-500">Total Acquis</span>
-                        <span className="font-bold">{stats.totalAccrued.toFixed(1)} j</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-500">Consommés</span>
-                        <span className="font-bold text-rose-600">-{stats.consumed.toFixed(1)} j</span>
-                      </div>
-                      <div className="pt-3 border-t border-slate-200 flex justify-between items-center bg-white p-2 rounded-xl mt-2">
-                        <span className="text-xs font-black text-indigo-900 uppercase">Solde Dispo</span>
-                        <span className="text-xl font-black text-indigo-600">{stats.remaining.toFixed(1)} j</span>
-                      </div>
-                      {stats.carryOver > 0 && (
-                        <div className="flex justify-between items-center px-2">
-                          <span className="text-[10px] font-bold text-amber-700 uppercase">Dont Report</span>
-                          <span className="text-sm font-black text-amber-600">{stats.carryOver.toFixed(1)} j</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )
-      }
+      {/* Les vues Historique et Reports ont été supprimées d'ici car elles sont déjà présentes dans le menu principal du dashboard. */}
 
       {/* Logs View */}
       {
@@ -932,24 +802,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                       return Math.abs(Number(r.duration) - expected) > 0.01;
                     });
                     if (errors.length === 0) return <p className="text-xs text-slate-400 italic">Toutes les durées sont cohérentes ✅</p>;
-                    return errors.map((r, i) => (
-                      <div key={i} className="mb-2 p-3 bg-white rounded-xl border border-amber-100 flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-bold text-slate-900">{r.profiles?.full_name}</p>
-                          <p className="text-slate-500">Enregistré: {r.duration}j | Attendu: {calculateBusinessDays(r.start_date, r.end_date)}j</p>
+                    return errors.map((r, i) => {
+                      const expected = calculateBusinessDays(r.start_date, r.end_date);
+                      return (
+                        <div key={i} className="mb-2 p-3 bg-white rounded-xl border border-amber-100 flex justify-between items-center text-xs">
+                          <div>
+                            <p className="font-bold text-slate-900">{r.profiles?.full_name}</p>
+                            <p className="text-slate-500">Enregistré: {r.duration}j | Attendu: {expected}j</p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              const { error } = await supabase.from('leave_requests').update({ duration: expected }).eq('id', r.id);
+                              if (!error) { fetchData(); if (onNotification) onNotification("Durée corrigée"); }
+                            }}
+                            className="bg-amber-100 text-amber-700 px-3 py-1 rounded-lg font-bold hover:bg-amber-200"
+                          >
+                            Corriger
+                          </button>
                         </div>
-                        <button
-                          onClick={async () => {
-                            const expected = calculateBusinessDays(r.start_date, r.end_date);
-                            const { error } = await supabase.from('leave_requests').update({ duration: expected }).eq('id', r.id);
-                            if (!error) { fetchData(); if (onNotification) onNotification("Durée corrigée"); }
-                          }}
-                          className="bg-amber-100 text-amber-700 px-3 py-1 rounded-lg font-bold hover:bg-amber-200"
-                        >
-                          Corriger
-                        </button>
-                      </div>
-                    ));
+                      );
+                    });
                   })()}
                 </div>
               </div>
@@ -960,9 +832,37 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
               <div className="flex flex-wrap gap-4">
                 <button
                   onClick={async () => {
-                    if (window.confirm("Voulez-vous supprimer toutes les demandes en double (chevauchements) ? L'action est irréversible.")) {
-                      // Logic to delete duplicates would go here
-                      if (onNotification) onNotification("Fonctionnalité de nettoyage groupée en cours de déploiement...");
+                    if (window.confirm("Voulez-vous supprimer toutes les demandes en double (chevauchements de dates pour un même employé) ? L'action est irréversible.")) {
+                      try {
+                        const overlaps: string[] = [];
+                        allRequests.forEach(r1 => {
+                          allRequests.forEach(r2 => {
+                            if (r1.id !== r2.id && r1.user_id === r2.user_id && r1.status !== 'REJECTED' && r2.status !== 'REJECTED') {
+                              const start1 = new Date(r1.start_date);
+                              const end1 = new Date(r1.end_date);
+                              const start2 = new Date(r2.start_date);
+                              const end2 = new Date(r2.end_date);
+                              if (start1 <= end2 && start2 <= end1) {
+                                // Garder la plus ancienne, supprimer la plus récente (r2 si r2.id > r1.id ou created_at)
+                                if (!overlaps.includes(r1.id) && !overlaps.includes(r2.id)) {
+                                  overlaps.push(r2.id);
+                                }
+                              }
+                            }
+                          });
+                        });
+
+                        if (overlaps.length > 0) {
+                          const { error } = await supabase.from('leave_requests').delete().in('id', overlaps);
+                          if (error) throw error;
+                          if (onNotification) onNotification(`${overlaps.length} demandes en double supprimées`);
+                          fetchData();
+                        } else {
+                          if (onNotification) onNotification("Aucun doublon trouvé");
+                        }
+                      } catch (e: any) {
+                        if (onNotification) onNotification(`Erreur: ${e.message}`);
+                      }
                     }
                   }}
                   className="bg-indigo-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all"

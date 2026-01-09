@@ -23,7 +23,6 @@ const App: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [dbUsers, setDbUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
