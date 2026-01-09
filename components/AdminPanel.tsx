@@ -301,13 +301,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">Gouvernance RH</span>
               </div>
-              <h1 className="text-4xl md:text-5xl font-black tracking-tighter leading-none">Console d'Administration</h1>
+              <h1 className="text-3xl md:text-5xl font-black tracking-tighter leading-none break-words">Console d'Administration</h1>
               <p className="text-slate-400 font-medium max-w-lg text-sm md:text-base">
                 Supervision stratégique des effectifs, validation des flux de congés et conformité aux protocoles organisationnels.
               </p>
             </div>
 
-            <div className="flex bg-white/5 backdrop-blur-xl border border-white/10 p-1.5 rounded-2xl md:self-center shadow-2xl">
+            <div className="flex bg-white/5 backdrop-blur-xl border border-white/10 p-1 rounded-2xl md:self-center shadow-2xl overflow-x-auto max-w-full custom-scrollbar">
               {[
                 { id: 'overview', label: 'Cockpit', icon: '📊' },
                 { id: 'requests', label: 'Flux', icon: '⚡', count: stats.pending },
@@ -318,7 +318,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
                 <button
                   key={tab.id}
                   onClick={() => setView(tab.id as any)}
-                  className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${view === tab.id
+                  className={`relative flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 whitespace-nowrap ${view === tab.id
                     ? 'bg-white text-slate-950 shadow-[0_10px_20px_rgba(0,0,0,0.2)] scale-105'
                     : 'text-slate-400 hover:text-white hover:bg-white/5'
                     }`}
