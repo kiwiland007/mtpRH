@@ -420,7 +420,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
                         </div>
                       </td>
                       <td className="px-8 py-5 text-xs font-bold text-slate-500">
-                        {new Date(req.start_date).toLocaleDateString('fr-FR')} — {new Date(req.end_date).toLocaleDateString('fr-FR')}
+                        {new Date(req.start_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })} — {new Date(req.end_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                       </td>
                       <td className="px-8 py-5 text-center">
                         <span className="inline-flex h-8 w-12 items-center justify-center bg-indigo-950 text-white rounded-lg text-xs font-black">

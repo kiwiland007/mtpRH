@@ -694,7 +694,7 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
                                                 <td className="px-8 py-5">
                                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-50 rounded-lg px-2 py-1.5 w-fit border border-slate-100">
                                                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                        <span>{new Date(leave.startDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} — {new Date(leave.endDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</span>
+                                                        <span>{new Date(leave.startDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })} — {new Date(leave.endDate).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                                                     </div>
                                                 </td>
                                                 <td className="px-8 py-5 text-center">
@@ -802,8 +802,8 @@ const LeaveHistory: React.FC<LeaveHistoryProps> = ({ currentUser, supabaseClient
             {/* Notification system */}
             {notification && (
                 <div className={`fixed bottom-8 right-8 z-[100] p-5 rounded-[2rem] shadow-2xl border-2 flex items-center gap-4 animate-in slide-in-from-bottom-10 fade-in duration-500 min-w-[320px] backdrop-blur-xl ${notification.type === 'success'
-                        ? 'bg-emerald-500/95 text-white border-emerald-400'
-                        : 'bg-rose-500/95 text-white border-rose-400'
+                    ? 'bg-emerald-500/95 text-white border-emerald-400'
+                    : 'bg-rose-500/95 text-white border-rose-400'
                     }`}>
                     <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-xl">
                         {notification.type === 'success' ? '✨' : '⚠️'}
