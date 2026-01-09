@@ -197,29 +197,39 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
   const handleDecision = async () => {
     if (!decisionModal) return;
     try {
+      setLoading(true);
       const { error } = await supabase.from('leave_requests').update({
         status: decisionModal.action,
         manager_comment: managerComment
       }).eq('id', decisionModal.id);
+
       if (error) throw error;
 
+      // Log d'audit
+      await auditLog('DECISION_REQUEST', { id: decisionModal.id, action: decisionModal.action });
+
+      // Envoi de notification (non bloquant pour le flux principal)
       const targetRequest = allRequests.find(r => r.id === decisionModal.id);
       if (targetRequest) {
-        await notificationService.createNotification(
+        notificationService.createNotification(
           targetRequest.user_id,
           `Demande ${decisionModal.action === LeaveStatus.APPROVED ? 'approuvée' : 'refusée'}`,
           `Votre demande pour la période du ${new Date(targetRequest.start_date).toLocaleDateString()} a été traitée.`,
           decisionModal.action === LeaveStatus.APPROVED ? 'success' : 'error'
-        );
+        ).catch(e => console.warn("Erreur notification (silencieuse):", e));
       }
 
-      await auditLog('DECISION_REQUEST', { id: decisionModal.id, action: decisionModal.action });
       setDecisionModal(null);
       setManagerComment('');
-      fetchData();
+
+      // Rafraîchissement impératif
+      await fetchData();
+
       if (onNotification) onNotification(`Demande traitée avec succès`);
     } catch (err: any) {
       if (onNotification) onNotification(`Erreur critique: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
