@@ -4,6 +4,7 @@ import { UserRole, LeaveStatus, LeaveType, User } from '../types';
 import { supabase } from '../lib/supabase';
 import { calculateMoroccanAccruedDays, calculateBalanceAnalysis, calculateBusinessDays } from '../utils/calculations';
 import { adminService } from '../services/adminService';
+import { notificationService } from '../services/notificationService';
 import {
   EditingUserModal,
   EditRequestModal,
@@ -285,9 +286,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
       setManagerComment('');
       fetchData();
       if (onUpdate) onUpdate();
-      const actionText = decisionModal.action === LeaveStatus.APPROVED ? 'approuvée' : 'refusée';
-      await auditLog('DECISION_REQUEST', { id: decisionModal.id, action: decisionModal.action });
 
+      const actionText = decisionModal.action === LeaveStatus.APPROVED ? 'approuvée' : 'refusée';
+
+      // Trouver l'utilisateur concerné
+      const targetRequest = allRequests.find(r => r.id === decisionModal.id);
+      if (targetRequest) {
+        await notificationService.createNotification(
+          targetRequest.user_id,
+          `Demande ${actionText}`,
+          `Votre demande pour la période du ${new Date(targetRequest.start_date).toLocaleDateString()} au ${new Date(targetRequest.end_date).toLocaleDateString()} a été ${actionText}.`,
+          decisionModal.action === LeaveStatus.APPROVED ? 'success' : 'error'
+        );
+      }
+
+      await auditLog('DECISION_REQUEST', { id: decisionModal.id, action: decisionModal.action });
       if (onNotification) onNotification(`Demande ${actionText} avec succès`);
     } catch (err: any) {
       if (onNotification) onNotification(`Erreur critique: ${err.message}`);
@@ -344,6 +357,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
       }]);
 
       if (error) throw error;
+
+      await notificationService.createNotification(
+        newAdminRequest.userId,
+        "Nouvelle demande (Admin)",
+        `Une demande de congé a été créée pour vous par l'administrateur (${newAdminRequest.type}, ${finalDuration}j).`,
+        'info'
+      );
 
       await auditLog('CREATE_REQUEST_ADMIN', { ...newAdminRequest, duration: finalDuration, status: 'APPROVED' });
 
@@ -624,7 +644,31 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
           <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in">
             <div className="p-8 border-b border-slate-100">
               <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Journaux d'Audit</h3>
-              <p className="text-slate-500 text-sm mt-2">Traçabilité complète des actions administratives.</p>
+              <div className="flex justify-between items-center mt-2">
+                <p className="text-slate-500 text-sm">Traçabilité complète des actions administratives.</p>
+                <button
+                  onClick={() => {
+                    const headers = ['Date', 'Action', 'Auteur', 'Détails'];
+                    const rows = logs.map(l => [
+                      new Date(l.created_at).toLocaleString(),
+                      l.action,
+                      l.profiles?.full_name || 'Système',
+                      `"${JSON.stringify(l.details).replace(/"/g, '""')}"`
+                    ].join(','));
+                    const csv = "\uFEFF" + headers.join(',') + "\n" + rows.join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = `audit_logs_${new Date().toISOString().split('T')[0]}.csv`;
+                    link.click();
+                  }}
+                  className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all flex items-center gap-2"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  Exporter
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
@@ -926,9 +970,31 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification 
                   Supprimer les Demandes en Double
                 </button>
                 <button
+                  onClick={async () => {
+                    if (window.confirm("Voulez-vous supprimer toutes les demandes orphelines (sans utilisateur lié) ?")) {
+                      try {
+                        const userIds = dbUsers.map(u => u.id);
+                        const { data: orphaned } = await supabase.from('leave_requests').select('id, user_id');
+                        const idsToDelete = (orphaned || [])
+                          .filter(r => !userIds.includes(r.user_id))
+                          .map(r => r.id);
+
+                        if (idsToDelete.length > 0) {
+                          const { error } = await supabase.from('leave_requests').delete().in('id', idsToDelete);
+                          if (error) throw error;
+                          if (onNotification) onNotification(`${idsToDelete.length} demandes orphelines supprimées`);
+                          fetchData();
+                        } else {
+                          if (onNotification) onNotification("Aucune demande orpheline trouvée");
+                        }
+                      } catch (e: any) {
+                        if (onNotification) onNotification(`Erreur: ${e.message}`);
+                      }
+                    }
+                  }}
                   className="bg-white text-indigo-900 border-2 border-indigo-900 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 transition-all"
                 >
-                  Récupérer les Demandes Orphelines
+                  Nettoyer les Demandes Orphelines
                 </button>
               </div>
             </div>

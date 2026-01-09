@@ -14,7 +14,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange, userRole, onO
   const menuItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: ICONS.Dashboard },
     { id: 'request', label: 'Ma demande', icon: ICONS.Calendar },
-    { id: 'calendar', label: 'Planning Équipe', icon: ICONS.Calendar },
     { id: 'history', label: 'Historique', icon: ICONS.History },
   ];
 

@@ -12,6 +12,7 @@ import Header from './components/Header';
 import NotificationCenter from './components/NotificationCenter';
 import LoginScreen from './components/LoginScreen';
 import { supabase } from './lib/supabase';
+import { notificationService } from './services/notificationService';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -31,6 +32,7 @@ const App: React.FC = () => {
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [supportTicket, setSupportTicket] = useState({ subject: '', message: '' });
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -128,6 +130,15 @@ const App: React.FC = () => {
     try {
       const { error } = await supabase.from('leave_requests').insert([newReqData]);
       if (error) throw error;
+
+      // Notifier les managers/HR
+      await notificationService.sendToRole(
+        'MANAGER',
+        'Nouvelle demande',
+        `${currentUser.fullName} a soumis une demande de type ${formData.type}.`,
+        'info'
+      );
+
       addNotification(`Demande transmise avec succès`);
       fetchRequests();
       setActiveTab('dashboard');
@@ -229,6 +240,7 @@ const App: React.FC = () => {
           onLogout={() => setShowLogoutModal(true)}
           onShowProfile={() => setShowProfileModal(true)}
           onShowSettings={() => setShowSettingsModal(true)}
+          onShowNotifications={() => setShowNotifications(!showNotifications)}
         />
 
         <main className="p-6 md:p-10">
@@ -341,7 +353,6 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN', is_active = true;`;
               <div className="animate-in">
                 {activeTab === 'dashboard' && <Dashboard user={currentUser} requests={requests} />}
                 {activeTab === 'request' && <LeaveForm onSubmit={handleNewRequest} onNotification={addNotification} />}
-                {activeTab === 'calendar' && <TeamCalendar requests={requests} />}
                 {activeTab === 'admin' && <AdminPanel user={currentUser} onUpdate={() => fetchRequests()} onNotification={addNotification} />}
                 {activeTab === 'carryovers' && <CarryoverManagement currentUser={currentUser} supabaseClient={supabase} />}
                 {activeTab === 'history' && <LeaveHistory currentUser={currentUser} supabaseClient={supabase} />}
@@ -350,7 +361,11 @@ ON CONFLICT (email) DO UPDATE SET role = 'ADMIN', is_active = true;`;
           </div>
         </main>
       </div>
-      <NotificationCenter notifications={notifications} />
+      <NotificationCenter
+        userId={currentUser?.id || ''}
+        isOpen={showNotifications}
+        onClose={() => setShowNotifications(false)}
+      />
 
       {/* Modal Mon Profil */}
       {showProfileModal && (
