@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS public.leave_history (
 CREATE INDEX IF NOT EXISTS idx_leave_history_user ON public.leave_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_leave_history_fiscal_year ON public.leave_history(fiscal_year);
 CREATE INDEX IF NOT EXISTS idx_leave_history_dates ON public.leave_history(start_date, end_date);
+ALTER TABLE public.leave_history ADD CONSTRAINT unique_leave_request_id UNIQUE (leave_request_id);
 
 -- 3. TABLE D'AUDIT TRAIL DÉTAILLÉ
 -- Extension de la table audit_logs pour les modifications de reports

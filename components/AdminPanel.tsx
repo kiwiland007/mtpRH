@@ -24,6 +24,7 @@ interface AdminPanelProps {
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification, onNavigate }) => {
   const [view, setView] = useState<'overview' | 'requests' | 'users' | 'settings' | 'history' | 'reports' | 'logs' | 'integrity'>('overview');
+  const [localNotification, setLocalNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [allRequests, setAllRequests] = useState<any[]>([]);
   const [dbUsers, setDbUsers] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
@@ -50,6 +51,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
     is_active: true,
     manager_id: ''
   });
+
+  const showAdminNotification = (type: 'success' | 'error', message: string) => {
+    setLocalNotification({ type, message });
+    if (onNotification) onNotification(message);
+    setTimeout(() => setLocalNotification(null), 5000);
+  };
 
   const auditLog = async (action: string, details: any) => {
     try {
@@ -197,7 +204,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
   const handleDecision = async () => {
     if (!decisionModal || !decisionModal.id) return;
 
-    // Capturer l'état actuel pour éviter les effets de bord
     const targetId = decisionModal.id;
     const targetAction = decisionModal.action;
     const comment = managerComment;
@@ -205,7 +211,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
     try {
       setLoading(true);
 
-      // 1. Mise à jour de la demande principale
       const { data: updatedReq, error: updateError } = await supabase
         .from('leave_requests')
         .update({
@@ -218,7 +223,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
 
       if (updateError) throw updateError;
 
-      // 2. Synchronisation avec l'historique (Critique pour les calculs de solde)
       if (targetAction === LeaveStatus.APPROVED && updatedReq) {
         try {
           const fiscalYear = new Date(updatedReq.start_date).getFullYear();
@@ -236,14 +240,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
             approved_at: new Date().toISOString()
           }, { onConflict: 'leave_request_id' });
         } catch (historyErr) {
-          console.error("Erreur sync historique:", historyErr);
+          console.warn("Sync historique échoué (silencieux) : possible manque de contrainte UNIQUE sur leave_request_id.", historyErr);
         }
       }
 
-      // 3. Log d'audit
       await auditLog('DECISION_REQUEST', { id: targetId, action: targetAction });
 
-      // 4. Notification (Optionnel/Silencieux)
       if (updatedReq) {
         notificationService.createNotification(
           updatedReq.user_id,
@@ -253,15 +255,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
         ).catch(() => { });
       }
 
-      // 5. Nettoyage et rafraîchissement
       setDecisionModal(null);
       setManagerComment('');
       await fetchData();
-
-      if (onNotification) onNotification(`Action confirmée : Demande ${targetAction === LeaveStatus.APPROVED ? 'approuvée' : 'refusée'}`);
+      showAdminNotification('success', `Demande ${targetAction === LeaveStatus.APPROVED ? 'approuvée' : 'refusée'} avec succès`);
     } catch (err: any) {
       console.error("Erreur validation:", err);
-      if (onNotification) onNotification(`Erreur critique: ${err.message}`);
+      showAdminNotification('error', `Erreur critique: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -291,7 +291,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
   const handleAdminCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAdminRequest.userId || !newAdminRequest.startDate) {
-      if (onNotification) onNotification("Veuillez remplir les champs obligatoires");
+      showAdminNotification('error', "Veuillez remplir les champs obligatoires");
       return;
     }
 
@@ -299,44 +299,32 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
       setLoading(true);
       const finalDuration = Number(newAdminRequest.duration) || calculateBusinessDays(newAdminRequest.startDate, newAdminRequest.isHalfDay ? newAdminRequest.startDate : newAdminRequest.endDate);
 
+      if (finalDuration <= 0) {
+        showAdminNotification('error', "La durée doit être supérieure à 0 (vérifiez les dates)");
+        return;
+      }
+
       const { data: newReq, error } = await supabase.from('leave_requests').insert([{
         user_id: newAdminRequest.userId,
         type: newAdminRequest.type,
         start_date: newAdminRequest.startDate,
         end_date: newAdminRequest.isHalfDay ? newAdminRequest.startDate : newAdminRequest.endDate,
-        status: LeaveStatus.APPROVED,
+        status: LeaveStatus.PENDING, // Passer en PENDING pour visibilité dans le Flux
         duration: finalDuration,
         comment: newAdminRequest.comment || 'Créé par l\'administrateur'
       }]).select().single();
 
       if (error) throw error;
 
-      // Synchronisation vers l'historique car le statut est DIRECTEMENT 'APPROVED'
-      if (newReq) {
-        const fiscalYear = new Date(newReq.start_date).getFullYear();
-        await supabase.from('leave_history').upsert({
-          user_id: newReq.user_id,
-          leave_request_id: newReq.id,
-          leave_type: newReq.type,
-          start_date: newReq.start_date,
-          end_date: newReq.end_date,
-          duration: newReq.duration,
-          status: LeaveStatus.APPROVED,
-          fiscal_year: fiscalYear,
-          manager_comment: 'Créé par l\'administrateur',
-          approved_by: user?.id,
-          approved_at: new Date().toISOString()
-        }, { onConflict: 'leave_request_id' }).catch(err => console.error("Sync history failed:", err));
-      }
-
       await auditLog('CREATE_REQUEST_ADMIN', { user_id: newAdminRequest.userId, duration: finalDuration });
       setIsCreatingRequest(false);
       setNewAdminRequest({ userId: '', type: LeaveType.ANNUAL, startDate: '', endDate: '', comment: '', duration: 0, isHalfDay: false });
+
       await fetchData();
-      if (onNotification) onNotification("Demande créée et solde mis à jour");
+      showAdminNotification('success', "Flux de congé initié avec succès");
     } catch (e: any) {
       console.error("Erreur création admin:", e);
-      if (onNotification) onNotification(`Erreur création: ${e.message}`);
+      showAdminNotification('error', `Erreur fatale: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -887,6 +875,22 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onUpdate, onNotification,
         <DecisionModal decisionModal={decisionModal} setDecisionModal={setDecisionModal} managerComment={managerComment} setManagerComment={setManagerComment} onDecision={handleDecision} />
         <AddUserModal isAdding={isAdding} setIsAdding={setIsAdding} newUser={newUser} setNewUser={setNewUser} departments={departments} dbUsers={dbUsers} onAddUser={handleAddUser} />
         <AdminCreateRequestModal isCreatingRequest={isCreatingRequest} setIsCreatingRequest={setIsCreatingRequest} newAdminRequest={newAdminRequest} setNewAdminRequest={setNewAdminRequest} dbUsers={dbUsers} onAdminCreateRequest={handleAdminCreateRequest} loading={loading} />
+
+        {/* Système de Notification Interne */}
+        {localNotification && (
+          <div className={`fixed bottom-8 right-8 z-[100] p-5 rounded-[2rem] shadow-2xl border-2 flex items-center gap-4 animate-in slide-in-from-bottom-10 fade-in duration-500 min-w-[320px] backdrop-blur-xl ${localNotification.type === 'success'
+            ? 'bg-emerald-500/95 text-white border-emerald-400'
+            : 'bg-rose-500/95 text-white border-rose-400'
+            }`}>
+            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-xl">
+              {localNotification.type === 'success' ? '✨' : '⚠️'}
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-80">{localNotification.type === 'success' ? 'Succès Admin' : 'Alerte Système'}</p>
+              <p className="text-sm font-bold tracking-tight">{localNotification.message}</p>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
